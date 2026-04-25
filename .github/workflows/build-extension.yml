@@ -1,0 +1,190 @@
+name: Build Ghidra extension
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ghidra_version:
+        description: 'Ghidra release to build against (e.g. 11.2.1)'
+        required: false
+        default: '11.2.1'
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GHIDRA_VERSION: ${{ github.event.inputs.ghidra_version || '11.2.1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Resolve Ghidra release URL
+        id: resolve
+        run: |
+          set -euo pipefail
+          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases)"
+          URL="$(printf '%s' "$RELEASE_JSON" \
+            | jq -r --arg v "$GHIDRA_VERSION" \
+                '[.[] | .assets[] | select(.name | test("ghidra_" + $v + "_PUBLIC_[0-9]+\\.zip$"))][0].browser_download_url')"
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "Could not resolve Ghidra release ${GHIDRA_VERSION} from GitHub releases" >&2
+            exit 1
+          fi
+          echo "ghidra_url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${URL}"
+
+      - name: Cache Ghidra distribution
+        id: cache-ghidra
+        uses: actions/cache@v4
+        with:
+          path: ghidra
+          key: ghidra-${{ env.GHIDRA_VERSION }}
+
+      - name: Download and unpack Ghidra
+        if: steps.cache-ghidra.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ghidra
+          curl -fL --retry 3 -o ghidra.zip "${{ steps.resolve.outputs.ghidra_url }}"
+          unzip -q ghidra.zip -d ghidra
+          rm ghidra.zip
+          inner="$(find ghidra -maxdepth 1 -mindepth 1 -type d -name 'ghidra_*' | head -n1)"
+          shopt -s dotglob
+          mv "$inner"/* ghidra/
+          rmdir "$inner"
+
+      - name: Install ghidra-65816 processor module
+        run: |
+          set -euo pipefail
+          # The loader is useless without the 65816 language. Pull the
+          # companion repo, drop it into Ghidra's processor tree, and
+          # compile its SLEIGH spec exactly once.
+          git clone --depth=1 https://github.com/Raikaru/ghidra-65816.git ghidra-65816
+          dest="ghidra/Ghidra/Processors/65816"
+          mkdir -p "$dest"
+          cp ghidra-65816/Module.manifest "$dest/"
+          cp -r ghidra-65816/data "$dest/"
+          chmod +x ghidra/support/sleigh
+          ghidra/support/sleigh -a "$dest"
+          test -f "$dest/data/languages/65816.sla"
+
+      - name: Build extension zip
+        working-directory: SnesLoader
+        env:
+          GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon buildExtension
+
+      - name: Locate extension zip
+        id: locate
+        run: |
+          set -euo pipefail
+          ZIP="$(ls SnesLoader/dist/*ghidra_snes_loader.zip | head -n1)"
+          if [ -z "$ZIP" ]; then
+            echo "No extension zip produced under SnesLoader/dist" >&2
+            ls -la SnesLoader/dist || true
+            exit 1
+          fi
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "Built $ZIP"
+
+      - name: Install built extension into Ghidra
+        run: |
+          set -euo pipefail
+          ZIP="${{ steps.locate.outputs.zip }}"
+          dest="ghidra/Ghidra/Extensions"
+          mkdir -p "$dest"
+          unzip -oq "$ZIP" -d "$dest"
+          # The unpacked extension lives at $dest/ghidra_snes_loader/
+          test -f "$dest/ghidra_snes_loader/extension.properties"
+
+      - name: Smoke-test the loader on a synthesized LoROM
+        env:
+          GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
+        run: |
+          set -euo pipefail
+          mkdir -p smoke/proj smoke/scripts smoke/rom
+          python3 tests/synth-min-lorom.py smoke/rom/min.smc
+          cp tests/PrintSnesArtifacts.java smoke/scripts/
+
+          # Run the headless analyzer. -import binds via the SNES loader,
+          # -postScript dumps the structural assertions we care about.
+          ghidra/support/analyzeHeadless smoke/proj smoketest \
+            -import smoke/rom/min.smc \
+            -scriptPath smoke/scripts \
+            -postScript PrintSnesArtifacts.java \
+            -deleteProject \
+            > smoke/headless.log 2>&1 || (cat smoke/headless.log ; exit 1)
+          echo "----- analyzeHeadless tail -----"
+          tail -n 80 smoke/headless.log
+          echo "----- MARK: lines -----"
+          grep '^MARK:' smoke/headless.log | tee smoke/marks.txt
+
+      - name: Assert smoke-test markers
+        run: |
+          set -euo pipefail
+          marks=smoke/marks.txt
+          # Each pattern below is a property the loader is contractually
+          # required to produce. A missing marker is a regression.
+          required=(
+            'MARK: LANGUAGE 65816:LE:16:default'
+            'MARK: VECTOR vector_RESET @ 0000fffc'
+            'MARK: VECTOR vector_NMI_native @ 0000ffea'
+            'MARK: VECTOR vector_BRK_native @ 0000ffe6'
+            'MARK: BLOCK lowram_mirror_01'
+            'MARK: BLOCK hwregs_mirror_01'
+            'MARK: BLOCK lowram_mirror_3F'
+            'MARK: BLOCK hwregs_mirror_3F'
+            'MARK: LABEL NMITIMEN @ 00004200'
+            'MARK: LABEL NMITIMEN @ 00014200'
+            'MARK: LABEL NMITIMEN @ 003f4200'
+            'MARK: ENTRY RESET 00008000'
+          )
+          fail=0
+          for pat in "${required[@]}"; do
+            if grep -qF "$pat" "$marks"; then
+              echo "OK   $pat"
+            else
+              echo "MISS $pat"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "smoke test failed: one or more required markers are missing." >&2
+            exit 1
+          fi
+
+      - name: Upload smoke-test artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-${{ env.GHIDRA_VERSION }}
+          path: |
+            smoke/headless.log
+            smoke/marks.txt
+            smoke/rom/min.smc
+          if-no-files-found: ignore
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghidra-snes-loader-${{ env.GHIDRA_VERSION }}
+          path: SnesLoader/dist/*ghidra_snes_loader.zip
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SnesLoader/dist/*ghidra_snes_loader.zip
