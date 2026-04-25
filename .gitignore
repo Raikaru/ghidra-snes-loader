@@ -34,3 +34,7 @@ SnesLoader/.settings
 SnesLoader/bin
 SnesLoader/build
 SnesLoader/dist
+
+# Local real-ROM smoke runner output. Never commit any of these:
+# they may contain headers from non-public cartridges.
+.local-test/
