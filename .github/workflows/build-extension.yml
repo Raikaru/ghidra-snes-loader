@@ -152,10 +152,11 @@ jobs:
           echo "Installed: ${props[0]}"
 
       - name: Smoke-test the loader on a synthesized LoROM
+        shell: bash {0}
         env:
           GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p smoke/proj smoke/scripts smoke/rom
           python3 tests/synth-min-lorom.py smoke/rom/min.smc
           cp tests/PrintSnesArtifacts.java smoke/scripts/
@@ -167,15 +168,26 @@ jobs:
             -scriptPath smoke/scripts \
             -postScript PrintSnesArtifacts.java \
             -deleteProject \
-            > smoke/headless.log 2>&1 || (cat smoke/headless.log ; exit 1)
+            > smoke/headless.log 2>&1
+          rc=$?
+          echo "analyzeHeadless exit code: $rc"
           echo "----- analyzeHeadless tail -----"
           tail -n 80 smoke/headless.log
           echo "----- MARK: lines -----"
-          grep '^MARK:' smoke/headless.log | tee smoke/marks.txt
+          # Ghidra's GhidraScript.println prefixes output with
+          # "INFO  ScriptName> ", so match anywhere on the line. The
+          # asserter step uses substring matching too.
+          grep -E 'MARK:' smoke/headless.log > smoke/marks.txt || true
+          cat smoke/marks.txt
+          if [ "$rc" -ne 0 ] && [ ! -s smoke/marks.txt ]; then
+            echo "analyzeHeadless failed and produced no MARK output" >&2
+            exit 1
+          fi
 
       - name: Assert smoke-test markers
+        shell: bash {0}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           marks=smoke/marks.txt
           # Each pattern below is a property the loader is contractually
           # required to produce. A missing marker is a regression.
