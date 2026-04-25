@@ -77,14 +77,22 @@ jobs:
           ghidra/support/sleigh -a "$dest"
           test -f "$dest/data/languages/65816.sla"
 
+      - name: Set up Gradle 8.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
       - name: Build extension zip
         working-directory: SnesLoader
         env:
           GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
-          ./gradlew --no-daemon buildExtension
+          # The wrapper bundled in the repo is Gradle 5.6.3, which can't
+          # run on JDK 21. Drive the build with the action-supplied
+          # Gradle 8.5 instead. Ghidra 11.x's bundled build.gradle
+          # supports Gradle 7.3+, so 8.5 is fine.
+          gradle --no-daemon buildExtension
 
       - name: Locate extension zip
         id: locate
