@@ -15,7 +15,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # We build against the same Ghidra release on Linux and Windows so
+        # the OS-specific build paths (sleigh launcher choice, line endings,
+        # extension zip layout) get exercised. Linux is the canonical
+        # producer of the published release zip.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     env:
       # Loader source uses ImporterSettings + 5-arg getDefaultOptions, both
       # added in Ghidra 11.4. 12.0.4 is the latest stable line as of the
@@ -50,7 +61,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ghidra
-          key: ghidra-${{ env.GHIDRA_VERSION }}
+          key: ghidra-${{ matrix.os }}-${{ env.GHIDRA_VERSION }}
 
       - name: Download and unpack Ghidra
         if: steps.cache-ghidra.outputs.cache-hit != 'true'
@@ -77,11 +88,19 @@ jobs:
           mkdir -p "$dest"
           cp ghidra-65816/Module.manifest "$dest/" || exit 1
           cp -r ghidra-65816/data "$dest/" || exit 1
-          chmod +x ghidra/support/sleigh
+          # Pick the right launcher per OS. The Windows distribution ships
+          # sleigh.bat and analyzeHeadless.bat; on Linux they're plain
+          # shell scripts we have to mark executable.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            sleigh="ghidra/support/sleigh.bat"
+          else
+            chmod +x ghidra/support/sleigh
+            sleigh="ghidra/support/sleigh"
+          fi
           # The Ghidra launcher can exit non-zero on cleanup even when the
           # SLEIGH compile itself succeeded; judge success by the .sla
           # output, not by exit code.
-          ghidra/support/sleigh -a "$dest" > sleigh.log 2>&1
+          "$sleigh" -a "$dest" > sleigh.log 2>&1
           rc=$?
           echo "sleigh exit code: $rc"
           tail -n 50 sleigh.log
@@ -151,48 +170,54 @@ jobs:
           fi
           echo "Installed: ${props[0]}"
 
-      - name: Smoke-test the loader on a synthesized LoROM
+      # ---------------------------------------------------------------
+      # Smoke tests. We run analyzeHeadless three times against three
+      # synthesized ROMs, each with its own list of required MARK lines:
+      #
+      #   * min-LoROM   -- baseline mapping + vector + mirror coverage
+      #   * idiom-LoROM -- DBR/DP analyser correctness on PHK/PLB and TCD
+      #   * min-HiROM   -- HiROM mapping (bank $C0 primary + $00 mirror)
+      #
+      # The runner script encapsulates the headless invocation and
+      # prints a uniform header so the log is greppable per-ROM.
+      # ---------------------------------------------------------------
+
+      - name: Smoke-test min-LoROM
+        if: matrix.os == 'ubuntu-latest'
         shell: bash {0}
         env:
           GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
         run: |
           set -uo pipefail
-          mkdir -p smoke/proj smoke/scripts smoke/rom
-          python3 tests/synth-min-lorom.py smoke/rom/min.smc
-          cp tests/PrintSnesArtifacts.java smoke/scripts/
-
-          # Run the headless analyzer. -import binds via the SNES loader,
-          # -postScript dumps the structural assertions we care about.
-          ghidra/support/analyzeHeadless smoke/proj smoketest \
-            -import smoke/rom/min.smc \
-            -scriptPath smoke/scripts \
+          mkdir -p smoke/min-lorom/proj smoke/min-lorom/scripts smoke/min-lorom/rom
+          python3 tests/synth-min-lorom.py smoke/min-lorom/rom/min.smc
+          cp tests/PrintSnesArtifacts.java smoke/min-lorom/scripts/
+          echo "===== min-LoROM ====="
+          ghidra/support/analyzeHeadless smoke/min-lorom/proj smoketest \
+            -import smoke/min-lorom/rom/min.smc \
+            -scriptPath smoke/min-lorom/scripts \
             -postScript PrintSnesArtifacts.java \
             -deleteProject \
-            > smoke/headless.log 2>&1
+            > smoke/min-lorom/headless.log 2>&1
           rc=$?
           echo "analyzeHeadless exit code: $rc"
-          echo "----- analyzeHeadless tail -----"
-          tail -n 80 smoke/headless.log
-          echo "----- MARK: lines -----"
-          # Ghidra's GhidraScript.println prefixes output with
-          # "INFO  ScriptName> ", so match anywhere on the line. The
-          # asserter step uses substring matching too.
-          grep -E 'MARK:' smoke/headless.log > smoke/marks.txt || true
-          cat smoke/marks.txt
-          if [ "$rc" -ne 0 ] && [ ! -s smoke/marks.txt ]; then
-            echo "analyzeHeadless failed and produced no MARK output" >&2
+          tail -n 80 smoke/min-lorom/headless.log
+          grep -E 'MARK:' smoke/min-lorom/headless.log > smoke/min-lorom/marks.txt || true
+          cat smoke/min-lorom/marks.txt
+          if [ "$rc" -ne 0 ] && [ ! -s smoke/min-lorom/marks.txt ]; then
+            echo "min-LoROM analyzeHeadless failed and produced no MARK output" >&2
             exit 1
           fi
 
-      - name: Assert smoke-test markers
+      - name: Assert min-LoROM markers
+        if: matrix.os == 'ubuntu-latest'
         shell: bash {0}
         run: |
           set -uo pipefail
-          marks=smoke/marks.txt
-          # Each pattern below is a property the loader is contractually
-          # required to produce. A missing marker is a regression.
+          marks=smoke/min-lorom/marks.txt
           required=(
             'MARK: LANGUAGE 65816:LE:16:default'
+            'MARK: MAPMODE @ 0000ffd5 = 20'
             'MARK: VECTOR vector_RESET @ 0000fffc'
             'MARK: VECTOR vector_NMI_native @ 0000ffea'
             'MARK: VECTOR vector_BRK_native @ 0000ffe6'
@@ -204,6 +229,10 @@ jobs:
             'MARK: LABEL NMITIMEN @ 00014200'
             'MARK: LABEL NMITIMEN @ 003f4200'
             'MARK: ENTRY RESET 00008000'
+            # Emulation-mode vectors land at E=M=X=1.
+            'MARK: CTX ctx_EF @ 00008000 = 1'
+            'MARK: CTX ctx_MF @ 00008000 = 1'
+            'MARK: CTX ctx_XF @ 00008000 = 1'
           )
           fail=0
           for pat in "${required[@]}"; do
@@ -214,31 +243,137 @@ jobs:
               fail=1
             fi
           done
-          if [ "$fail" -ne 0 ]; then
-            echo "smoke test failed: one or more required markers are missing." >&2
+          [ "$fail" -eq 0 ] || { echo "min-LoROM smoke test failed" >&2; exit 1; }
+
+      - name: Smoke-test idiom-LoROM
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash {0}
+        env:
+          GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
+        run: |
+          set -uo pipefail
+          mkdir -p smoke/idiom-lorom/proj smoke/idiom-lorom/scripts smoke/idiom-lorom/rom
+          python3 tests/synth-idiom-lorom.py smoke/idiom-lorom/rom/idiom.smc
+          cp tests/PrintSnesArtifacts.java smoke/idiom-lorom/scripts/
+          echo "===== idiom-LoROM ====="
+          ghidra/support/analyzeHeadless smoke/idiom-lorom/proj smoketest \
+            -import smoke/idiom-lorom/rom/idiom.smc \
+            -scriptPath smoke/idiom-lorom/scripts \
+            -postScript PrintSnesArtifacts.java \
+            -deleteProject \
+            > smoke/idiom-lorom/headless.log 2>&1
+          rc=$?
+          echo "analyzeHeadless exit code: $rc"
+          tail -n 80 smoke/idiom-lorom/headless.log
+          grep -E 'MARK:' smoke/idiom-lorom/headless.log > smoke/idiom-lorom/marks.txt || true
+          cat smoke/idiom-lorom/marks.txt
+          if [ "$rc" -ne 0 ] && [ ! -s smoke/idiom-lorom/marks.txt ]; then
+            echo "idiom-LoROM analyzeHeadless failed and produced no MARK output" >&2
             exit 1
           fi
 
+      - name: Assert idiom-LoROM markers (DBR/DP analyser)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash {0}
+        run: |
+          set -uo pipefail
+          marks=smoke/idiom-lorom/marks.txt
+          # The whole point of this ROM: prove the analyser saw the
+          # PHK/PLB and TCD idioms and propagated the resulting bank /
+          # direct-page values to the test points.
+          required=(
+            'MARK: LANGUAGE 65816:LE:16:default'
+            'MARK: VECTOR vector_RESET @ 0000fffc'
+            'MARK: ENTRY RESET 00008000'
+            'MARK: CTX DBR @ 00008009 = 80'
+            'MARK: CTX DP @ 00008012 = 1234'
+          )
+          fail=0
+          for pat in "${required[@]}"; do
+            if grep -qF "$pat" "$marks"; then
+              echo "OK   $pat"
+            else
+              echo "MISS $pat"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || { echo "idiom-LoROM smoke test failed" >&2; exit 1; }
+
+      - name: Smoke-test min-HiROM
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash {0}
+        env:
+          GHIDRA_INSTALL_DIR: ${{ github.workspace }}/ghidra
+        run: |
+          set -uo pipefail
+          mkdir -p smoke/min-hirom/proj smoke/min-hirom/scripts smoke/min-hirom/rom
+          python3 tests/synth-min-hirom.py smoke/min-hirom/rom/min.smc
+          cp tests/PrintSnesArtifacts.java smoke/min-hirom/scripts/
+          echo "===== min-HiROM ====="
+          ghidra/support/analyzeHeadless smoke/min-hirom/proj smoketest \
+            -import smoke/min-hirom/rom/min.smc \
+            -scriptPath smoke/min-hirom/scripts \
+            -postScript PrintSnesArtifacts.java \
+            -deleteProject \
+            > smoke/min-hirom/headless.log 2>&1
+          rc=$?
+          echo "analyzeHeadless exit code: $rc"
+          tail -n 80 smoke/min-hirom/headless.log
+          grep -E 'MARK:' smoke/min-hirom/headless.log > smoke/min-hirom/marks.txt || true
+          cat smoke/min-hirom/marks.txt
+          if [ "$rc" -ne 0 ] && [ ! -s smoke/min-hirom/marks.txt ]; then
+            echo "min-HiROM analyzeHeadless failed and produced no MARK output" >&2
+            exit 1
+          fi
+
+      - name: Assert min-HiROM markers
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash {0}
+        run: |
+          set -uo pipefail
+          marks=smoke/min-hirom/marks.txt
+          required=(
+            'MARK: LANGUAGE 65816:LE:16:default'
+            'MARK: MAPMODE @ 0000ffd5 = 21'
+            'MARK: VECTOR vector_RESET @ 0000fffc'
+            'MARK: ENTRY RESET 00008000'
+            # HiROM lays the cart down at $C0:0000 with mirrors at $00:8000
+            # and $80:8000. Names come from HiRomLoader.load.
+            'MARK: BLOCK rom_C0_0000-C0_FFFF (HiROM bank C0)'
+            'MARK: BLOCK rom_00_8000_mirror2'
+            'MARK: BLOCK rom_80_8000_mirror1'
+          )
+          fail=0
+          for pat in "${required[@]}"; do
+            if grep -qF "$pat" "$marks"; then
+              echo "OK   $pat"
+            else
+              echo "MISS $pat"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ] || { echo "min-HiROM smoke test failed" >&2; exit 1; }
+
       - name: Upload smoke-test artefacts on failure
-        if: failure()
+        if: failure() && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-test-${{ env.GHIDRA_VERSION }}
+          name: smoke-test-${{ env.GHIDRA_VERSION }}-${{ matrix.os }}
           path: |
-            smoke/headless.log
-            smoke/marks.txt
-            smoke/rom/min.smc
+            smoke/**/headless.log
+            smoke/**/marks.txt
+            smoke/**/rom/*.smc
           if-no-files-found: ignore
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ghidra-snes-loader-${{ env.GHIDRA_VERSION }}
+          name: ghidra-snes-loader-${{ env.GHIDRA_VERSION }}-${{ matrix.os }}
           path: ${{ steps.locate.outputs.zip }}
           if-no-files-found: error
 
       - name: Attach to GitHub Release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && matrix.os == 'ubuntu-latest'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.locate.outputs.zip }}
