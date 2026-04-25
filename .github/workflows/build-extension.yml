@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       ghidra_version:
-        description: 'Ghidra release to build against (e.g. 11.2.1)'
+        description: 'Ghidra release to build against (e.g. 12.0.4)'
         required: false
-        default: '11.2.1'
+        default: '12.0.4'
   release:
     types: [published]
 
@@ -17,7 +17,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      GHIDRA_VERSION: ${{ github.event.inputs.ghidra_version || '11.2.1' }}
+      # Loader source uses ImporterSettings + 5-arg getDefaultOptions, both
+      # added in Ghidra 11.4. 12.0.4 is the latest stable line as of the
+      # 1.2.0 release; bump together with the source if the API drifts again.
+      GHIDRA_VERSION: ${{ github.event.inputs.ghidra_version || '12.0.4' }}
     steps:
       - uses: actions/checkout@v4
 
