@@ -57,9 +57,9 @@ public final class SnesPostLoader {
 	public static final long EMU_VECTORS_ADDR = 0x00_FFF4L;
 	public static final long CART_HEADER_ADDR_LOROM = 0x00_FFC0L;
 
-	/** GSU (SuperFX) RAM is 64 KiB at $70:0000-$7F:FFFF. This is separate from SNES WRAM. */
+	/** GSU (SuperFX) RAM is 64 KiB at $70:0000-$70:FFFF. Separate from SNES WRAM. */
 	public static final long GSU_RAM_START = 0x70_0000L;
-	public static final long GSU_RAM_LEN = 0x10_0000L;    // 64 KiB
+	public static final long GSU_RAM_LEN = 0x1_0000L;     // 64 KiB
 	public static final long GSU_VECTORS_ADDR = 0x70_0000L;
 
 	/** SA-1 BW-RAM is 256 KiB. It's mapped at $40-$4F:0000-FFFF (16 banks × 64 KiB) and also
@@ -297,7 +297,7 @@ public final class SnesPostLoader {
 	private static void mapGsuRam(Program program, AddressSpace bus, MessageLog log) {
 		Address start = bus.getAddress(GSU_RAM_START);
 		MemoryBlockUtils.createUninitializedBlock(program, false, "gsu_ram", start, GSU_RAM_LEN,
-				"GSU (SuperFX) RAM ($70:0000-$7F:FFFF, 64 KiB)", "", true, true, false, log);
+				"GSU (SuperFX) RAM ($70:0000-$70:FFFF, 64 KiB)", "", true, true, false, log);
 	}
 
 	/**
@@ -325,12 +325,13 @@ public final class SnesPostLoader {
 		MemoryBlockUtils.createUninitializedBlock(program, false, "sa1_bwram", start, SA1_BWRAM_LEN,
 				"SA-1 BW-RAM ($40:0000-$43:FFFF, 256 KiB)", "", true, true, false, log);
 		
-		// Mirror BW-RAM into banks $44-$4F (remaining banks of the 1 MiB window)
+		// Mirror BW-RAM into banks $44-$4F. Each bank is 64 KiB and points to the
+		// first 64 KiB of the 256 KiB BW-RAM (default BMAP mapping).
 		for (int bank = 0x44; bank <= 0x4F; bank++) {
 			Address mirror = bus.getAddress(((long) bank) << 16);
 			MemoryBlockUtils.createByteMappedBlock(program,
 				String.format("sa1_bwram_mirror_%02X", bank),
-				mirror, start, (int) SA1_BWRAM_LEN,
+				mirror, start, 0x1_0000, // 64 KiB per individual bank
 				String.format("SA-1 BW-RAM mirror at $%02X:0000-$%02X:FFFF", bank, bank),
 				"", true, true, false, false, log);
 		}
