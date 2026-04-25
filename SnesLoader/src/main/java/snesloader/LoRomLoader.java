@@ -21,15 +21,18 @@ import snesloader.RomReader.RomChunk;
 /**
  * Memory mapping for LoROM (mode 20 / 30 — also 22 / 32 for SA-1/SDD-1 variants):
  * <pre>
- *   Banks $00-$3F : ROM at $8000-$FFFF (32 KiB chunk per bank)
- *   Banks $80-$BF : same primary mirror as $00-$3F (FastROM access)
- *   Banks $40-$6F : ROM extension for >4 MiB LoROM (SDD-1 data ROM, etc.)
+ *   Banks $00-$3F : ROM at $8000-$FFFF (32 KiB chunk per bank) — lower 2 MiB
+ *   Banks $80-$BF : FastROM mirror of $00-$3F
+ *   Banks $40-$7D : ROM at $8000-$FFFF — upper 2 MiB of the basic 4 MiB
+ *   Banks $C0-$FF : FastROM mirror of $40-$7D
+ *   Banks $40-$5F : ROM extension at $0000-$7FFF — data ROM past 4 MiB (SDD-1 etc.)
  *   Banks $7E-$7F : WRAM (created later by SnesPostLoader, not here)
  * </pre>
- * For each 32 KiB ROM chunk we lay down one initialised primary block at
- * $bb:8000 and one byte-mapped mirror at $(bb+0x80):8000 so that FastROM-
- * region accesses resolve. Chunks past 4 MiB are mapped into banks $40-$6F
- * (typically unused in standard LoROM) so the physical ROM data is available.
+ *
+ * For each 32 KiB ROM chunk we lay down one initialised primary block and
+ * one byte-mapped mirror so FastROM-region accesses resolve. Chunks past
+ * 4 MiB are mapped into the lower half of banks $40-$5F (unused in standard
+ * LoROM) so the physical SDD-1 / data ROM bytes are available to the analyst.
  */
 public class LoRomLoader {
 
@@ -46,27 +49,26 @@ public class LoRomLoader {
 		for (RomChunk chunk : reader) {
 			long romStart = chunk.getRomStart();
 
-			// Standard LoROM: 0 to 4 MiB → banks $00-$3F/$80-$BF at $8000.
-			// Extended LoROM: 4 to 8 MiB → banks $40-$6F at $8000 (for SDD-1 data ROM, etc.).
 			if (romStart >= MAX_ROM_SIZE) {
-				if (romStart >= 0x80_0000L) {
-					// Beyond 8 MiB ceiling — truncate.
+				// Past 4 MiB. Map into lower halves of banks $40-$5F.
+				// This avoids conflicts with primary blocks ($40-$7D:8000) and
+				// FastROM mirrors ($80-$FF:8000) from the first 4 MiB.
+				long extChunkIdx = (romStart - MAX_ROM_SIZE) / 0x8000L;
+				long bank = 0x40L + extChunkIdx;
+				if (bank >= 0x60) {
 					if (!truncationWarned) {
 						log.appendMsg(SnesLoader.LOADER_NAME, String.format(
-							"ROM is %d KiB, larger than the LoROM extended 8 MiB ceiling. " +
-							"Mapping the first 8 MiB only.", provider.length() / 1024));
+							"ROM is %d KiB, mapping the first 5 MiB only; the remaining " +
+							"bytes are reachable via the file's flat byte view.",
+							provider.length() / 1024));
 						truncationWarned = true;
 					}
 					continue;
 				}
-				// The $40-$6F range (3 MiB at $8000) gives room for an additional
-				// 6 MiB of extension, but the address calculation for mirrors in
-				// $80-x would overflow. Create only the primary block.
-				long extOffset = romStart - MAX_ROM_SIZE; // 0..4 MiB into extension region
-				long bank = 0x40L + (extOffset / 0x8000L);
-				Address primary = bus.getAddress((bank << 16) | 0x8000L);
-				String primaryName = String.format("rom_ext_%02X_8000-%02X_FFFF (file %06X-%06X)",
-						(int) bank, (int) bank, romStart, chunk.getRomEnd());
+				Address primary = bus.getAddress((bank << 16) | 0x0000L);
+				String primaryName = String.format(
+					"rom_ext_%02X_0000-%02X_7FFF (SDD-1 data / file %06X-%06X)",
+					(int) bank, (int) bank, romStart, chunk.getRomEnd());
 				try {
 					MemoryBlockUtils.createInitializedBlock(prog, false, primaryName, primary,
 							chunk.getInputStream(), chunk.getLength(),
@@ -74,7 +76,8 @@ public class LoRomLoader {
 							provider.getAbsolutePath(), true, false, true, log, monitor);
 				}
 				catch (AddressOverflowException e) {
-					throw new IOException("Failed to map extended LoROM chunk at " + primary, e);
+					throw new IOException(
+						"Failed to map extended LoROM chunk at " + primary, e);
 				}
 				continue;
 			}
