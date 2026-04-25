@@ -133,23 +133,36 @@ jobs:
         shell: bash {0}
         run: |
           set -uo pipefail
-          # Search broadly: Ghidra has shifted the buildExtension output
-          # location across versions (SnesLoader/dist/,
-          # SnesLoader/build/distributions/, etc.).
+          # Ghidra has shifted the buildExtension output location across
+          # versions (SnesLoader/dist/, SnesLoader/build/distributions/,
+          # ...) and produces a sibling -src.zip that mustn't be confused
+          # with the real distribution zip. We filter on three criteria:
+          # outside the Ghidra checkout, not a *-src.zip, and -- as the
+          # tiebreaker between candidates -- contains an extension.properties
+          # at the top level.
           echo "--- All zips outside the Ghidra checkout ---"
           find . -type f -name '*.zip' -not -path './ghidra/*' 2>/dev/null
-          mapfile -t hits < <(find . -type f -name '*.zip' -not -path './ghidra/*' \
-            \( -name '*snes_loader*' -o -name '*SnesLoader*' \) 2>/dev/null)
-          echo "Candidates:"
+          mapfile -t hits < <(find . -type f -name '*.zip' \
+            -not -path './ghidra/*' \
+            \( -name '*snes_loader*' -o -name '*SnesLoader*' \) \
+            -not -name '*-src.zip' 2>/dev/null)
+          echo "Candidates after filtering -src.zip:"
           printf '  %s\n' "${hits[@]:-(none)}"
-          if [ "${#hits[@]}" -eq 0 ]; then
-            echo "No extension zip produced." >&2
+          chosen=""
+          for cand in "${hits[@]}"; do
+            if unzip -l "$cand" 2>/dev/null | grep -q 'extension.properties$'; then
+              chosen="$cand"
+              break
+            fi
+          done
+          if [ -z "$chosen" ]; then
+            echo "No extension zip with extension.properties produced." >&2
             echo "--- SnesLoader tree ---"
             find SnesLoader -maxdepth 4 -type f 2>/dev/null | head -n 200
             exit 1
           fi
-          echo "zip=${hits[0]}" >> "$GITHUB_OUTPUT"
-          echo "Using ${hits[0]}"
+          echo "zip=${chosen}" >> "$GITHUB_OUTPUT"
+          echo "Using ${chosen}"
 
       - name: Install built extension into Ghidra
         shell: bash {0}
