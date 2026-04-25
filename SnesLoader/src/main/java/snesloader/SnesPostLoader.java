@@ -336,10 +336,25 @@ public final class SnesPostLoader {
 				"", true, true, false, false, log);
 		}
 		
-		// Low-memory BW-RAM window at $00:6000-$7FFF and mirrors in other banks
+		// Low-memory BW-RAM window at $00:6000-$7FFF.
 		Address lowStart = bus.getAddress(SA1_BWRAM_LOW_START);
 		MemoryBlockUtils.createByteMappedBlock(program, "sa1_bwram_low", lowStart, start,
 				0x2000, "SA-1 BW-RAM low window at $00:6000-$7FFF", "", true, true, false, false, log);
+		// Mirror the low window into banks $01-$3F and $80-$BF so the decompiler
+		// resolves LDA $6000-style accesses from any DBR-tracked bank.
+		for (int range = 0; range < MIRROR_BANK_RANGES.length; range += 2) {
+			int lo = MIRROR_BANK_RANGES[range];
+			int hi = MIRROR_BANK_RANGES[range + 1];
+			for (int bank = lo; bank <= hi; bank++) {
+				if (bank == 0x00) continue; // primary block already created above
+				Address mirror = bus.getAddress(((long) bank) << 16 | SA1_BWRAM_LOW_START);
+				MemoryBlockUtils.createByteMappedBlock(program,
+					String.format("sa1_bwram_low_mirror_%02X", bank),
+					mirror, start, 0x2000,
+					String.format("SA-1 BW-RAM low mirror at $%02X:6000-$%02X:7FFF", bank, bank),
+					"", true, true, false, false, log);
+			}
+		}
 	}
 
 	/**
