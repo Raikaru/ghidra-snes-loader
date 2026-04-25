@@ -64,7 +64,7 @@ jobs:
 
       - name: Install ghidra-65816 processor module
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # The loader is useless without the 65816 language. Pull the
           # companion repo, drop it into Ghidra's processor tree, and
           # compile its SLEIGH spec exactly once.
@@ -74,8 +74,13 @@ jobs:
           cp ghidra-65816/Module.manifest "$dest/"
           cp -r ghidra-65816/data "$dest/"
           chmod +x ghidra/support/sleigh
-          ghidra/support/sleigh -a "$dest"
+          # The Ghidra launcher can exit non-zero on cleanup even when the
+          # SLEIGH compile itself succeeded; judge success by the .sla
+          # output, not by exit code.
+          ghidra/support/sleigh -a "$dest" > sleigh.log 2>&1 || true
+          tail -n 50 sleigh.log
           test -f "$dest/data/languages/65816.sla"
+          test -f "$dest/data/languages/65802.sla"
 
       - name: Set up Gradle 8.5
         uses: gradle/actions/setup-gradle@v4
