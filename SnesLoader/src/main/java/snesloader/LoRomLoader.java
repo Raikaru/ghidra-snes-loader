@@ -19,16 +19,17 @@ import ghidra.util.task.TaskMonitor;
 import snesloader.RomReader.RomChunk;
 
 /**
- * Memory mapping for LoROM (mode 20 / 30 — also 22 / 32 for SA-1 variants):
+ * Memory mapping for LoROM (mode 20 / 30 — also 22 / 32 for SA-1/SDD-1 variants):
  * <pre>
  *   Banks $00-$3F : ROM at $8000-$FFFF (32 KiB chunk per bank)
  *   Banks $80-$BF : same primary mirror as $00-$3F (FastROM access)
- *   Banks $40-$6F : usually unused or further ROM mirror; we mirror $80-$AF only.
+ *   Banks $40-$6F : ROM extension for >4 MiB LoROM (SDD-1 data ROM, etc.)
  *   Banks $7E-$7F : WRAM (created later by SnesPostLoader, not here)
  * </pre>
  * For each 32 KiB ROM chunk we lay down one initialised primary block at
  * $bb:8000 and one byte-mapped mirror at $(bb+0x80):8000 so that FastROM-
- * region accesses resolve.
+ * region accesses resolve. Chunks past 4 MiB are mapped into banks $40-$6F
+ * (typically unused in standard LoROM) so the physical ROM data is available.
  */
 public class LoRomLoader {
 
@@ -43,25 +44,43 @@ public class LoRomLoader {
 		RomReader reader = new RomReader(romInfo, provider);
 		boolean truncationWarned = false;
 		for (RomChunk chunk : reader) {
-			// LoROM chunk indices past the 4 MiB ceiling cannot be expressed
-			// in the 24-bit SNES bus and must be skipped. This shows up on
-			// SPC7110 cartridges (Star Ocean, Far East of Eden Zero) when
-			// the auto-detection coincidentally picks LoROM over the real
-			// HiROM/SPC7110 mapping. Without this guard busAddressesFor
-			// throws AddressOutOfBoundsException with offset 0x1008000.
-			if (chunk.getRomStart() >= MAX_ROM_SIZE) {
-				if (!truncationWarned) {
-					log.appendMsg(SnesLoader.LOADER_NAME, String.format(
-						"ROM is %d KiB, larger than the LoROM 4 MiB ceiling. " +
-						"Mapping the first 4 MiB only; the remaining bytes are " +
-						"reachable via the file's flat byte view but not the " +
-						"24-bit bus.", provider.length() / 1024));
-					truncationWarned = true;
+			long romStart = chunk.getRomStart();
+
+			// Standard LoROM: 0 to 4 MiB → banks $00-$3F/$80-$BF at $8000.
+			// Extended LoROM: 4 to 8 MiB → banks $40-$6F at $8000 (for SDD-1 data ROM, etc.).
+			if (romStart >= MAX_ROM_SIZE) {
+				if (romStart >= 0x80_0000L) {
+					// Beyond 8 MiB ceiling — truncate.
+					if (!truncationWarned) {
+						log.appendMsg(SnesLoader.LOADER_NAME, String.format(
+							"ROM is %d KiB, larger than the LoROM extended 8 MiB ceiling. " +
+							"Mapping the first 8 MiB only.", provider.length() / 1024));
+						truncationWarned = true;
+					}
+					continue;
+				}
+				// The $40-$6F range (3 MiB at $8000) gives room for an additional
+				// 6 MiB of extension, but the address calculation for mirrors in
+				// $80-x would overflow. Create only the primary block.
+				long extOffset = romStart - MAX_ROM_SIZE; // 0..4 MiB into extension region
+				long bank = 0x40L + (extOffset / 0x8000L);
+				Address primary = bus.getAddress((bank << 16) | 0x8000L);
+				String primaryName = String.format("rom_ext_%02X_8000-%02X_FFFF (file %06X-%06X)",
+						(int) bank, (int) bank, romStart, chunk.getRomEnd());
+				try {
+					MemoryBlockUtils.createInitializedBlock(prog, false, primaryName, primary,
+							chunk.getInputStream(), chunk.getLength(),
+							"ROM extension (SDD-1 / data ROM beyond 4 MiB)",
+							provider.getAbsolutePath(), true, false, true, log, monitor);
+				}
+				catch (AddressOverflowException e) {
+					throw new IOException("Failed to map extended LoROM chunk at " + primary, e);
 				}
 				continue;
 			}
-			List<Address> mirrors = busAddressesFor(chunk, bus);
-			Address primary = mirrors.remove(0);
+
+			List<Address> addresses = busAddressesFor(chunk, bus);
+			Address primary = addresses.remove(0);
 			String primaryName = chunkPrimaryName(chunk);
 			try {
 				MemoryBlockUtils.createInitializedBlock(prog, false, primaryName, primary,
@@ -73,7 +92,7 @@ public class LoRomLoader {
 			}
 
 			int idx = 1;
-			for (Address mirror : mirrors) {
+			for (Address mirror : addresses) {
 				String mirrorName = String.format("%s_mirror%d", primaryName, idx++);
 				MemoryBlockUtils.createByteMappedBlock(prog, mirrorName, mirror, primary,
 						(int) chunk.getLength(), "mirror of " + primaryName, "", true, false, true,
