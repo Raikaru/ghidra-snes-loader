@@ -41,6 +41,10 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 	public static final String OPT_HEADER_DT = "Apply Cartridge Header datatype";
 	public static final String OPT_LOWRAM_MIRROR = "Map LowRAM mirror at $00:0000";
 	public static final String OPT_SRAM = "Map cartridge SRAM (when present)";
+	public static final String OPT_MSU1 = "Label MSU-1 streaming registers ($2000-$2007)";
+	public static final String OPT_COPROC = "Label coprocessor registers (SA-1 / SuperFX / S-DD1)";
+	public static final String OPT_MIRROR_HW_LABELS =
+		"Mirror hardware-register labels into all banks $00-$3F and $80-$BF";
 
 	@Override
 	public String getName() {
@@ -153,6 +157,12 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 			Loader.COMMAND_LINE_ARG_PREFIX + "-snesLowRamMirror"));
 		list.add(new Option(OPT_SRAM, true, Boolean.class,
 			Loader.COMMAND_LINE_ARG_PREFIX + "-snesSram"));
+		list.add(new Option(OPT_MSU1, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesMsu1"));
+		list.add(new Option(OPT_COPROC, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesCoproc"));
+		list.add(new Option(OPT_MIRROR_HW_LABELS, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesMirrorHwLabels"));
 		return list;
 	}
 
@@ -166,7 +176,9 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 		for (Option opt : options) {
 			String n = opt.getName();
 			if (OPT_HW_REGS.equals(n) || OPT_VECTORS.equals(n) || OPT_HEADER_DT.equals(n)
-					|| OPT_LOWRAM_MIRROR.equals(n) || OPT_SRAM.equals(n)) {
+					|| OPT_LOWRAM_MIRROR.equals(n) || OPT_SRAM.equals(n)
+					|| OPT_MSU1.equals(n) || OPT_COPROC.equals(n)
+					|| OPT_MIRROR_HW_LABELS.equals(n)) {
 				if (!Boolean.class.isAssignableFrom(opt.getValueClass())) {
 					return "Invalid type for option: " + n + " - " + opt.getValueClass();
 				}
@@ -218,6 +230,15 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 					break;
 				case OPT_SRAM:
 					o.mapSram = b;
+					break;
+				case OPT_MSU1:
+					o.mapMsu1 = b;
+					break;
+				case OPT_COPROC:
+					o.labelCoprocessor = b;
+					break;
+				case OPT_MIRROR_HW_LABELS:
+					o.mirrorHwRegLabels = b;
 					break;
 				default:
 					break;

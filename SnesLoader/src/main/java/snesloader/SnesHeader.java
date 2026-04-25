@@ -165,10 +165,87 @@ public final class SnesHeader {
 		return lo == 1 || lo == 5; // 0x21/0x31 HiROM, 0x25/0x35 ExHiROM
 	}
 
+	public boolean isExHiRomMode() {
+		// 0x25 / 0x35 ExHiROM (8 MB+ HiROM-style mapping with banks shifted up).
+		return (mapMode == 0x25) || (mapMode == 0x35);
+	}
+
 	public boolean isLoRomMode() {
 		int lo = mapMode & 0x0F;
 		return lo == 0 || lo == 2; // 0x20/0x30 LoROM, 0x22/0x32 LoROM SA-1, etc.
 	}
+
+	/**
+	 * Coprocessor / cartridge add-on chip embedded on the cartridge, derived
+	 * from the high nibble of the cartridge type when the low nibble indicates
+	 * a non-trivial component (anything other than ROM-only).
+	 *
+	 * <p>References:
+	 * <a href="https://snes.nesdev.org/wiki/ROM_header">SNESdev wiki — ROM header</a>.</p>
+	 */
+	public enum Coprocessor {
+		NONE("None"),
+		DSP1("DSP-1/2/3/4 (NEC uPD77C25)"),
+		GSU("GSU/SuperFX"),
+		OBC1("OBC-1"),
+		SA1("SA-1"),
+		SDD1("S-DD1"),
+		SRTC("S-RTC"),
+		OTHER("Other (Super Game Boy / SGB-1)"),
+		CUSTOM_SPC7110("SPC7110 (Custom)"),
+		CUSTOM_ST010_011("ST010/ST011 (Custom)"),
+		CUSTOM_ST018("ST018 (Custom)"),
+		CUSTOM_CX4("Cx4 (Custom)"),
+		CUSTOM_UNKNOWN("Custom (unknown)");
+
+		private final String description;
+		Coprocessor(String description) { this.description = description; }
+		public String describe() { return description; }
+		public boolean isPresent() { return this != NONE; }
+	}
+
+	/**
+	 * Decode the cartridge-type byte at $FFD6 into a {@link Coprocessor} value.
+	 * Returns {@link Coprocessor#NONE} for plain ROM/RAM/SRAM cartridges.
+	 */
+	public Coprocessor getCoprocessor() {
+		// Low nibble = component composition (ROM/ROM+RAM/ROM+RAM+battery/...).
+		// High nibble = coprocessor family (00 = none).
+		int hi = (cartridgeType >> 4) & 0x0F;
+		int lo = cartridgeType & 0x0F;
+		// Plain ROM, ROM+RAM, ROM+RAM+SRAM all have hi=0 and no chip.
+		if (hi == 0) return Coprocessor.NONE;
+		switch (hi) {
+			case 0x0: return Coprocessor.NONE;
+			case 0x1: return Coprocessor.DSP1;
+			case 0x2: return Coprocessor.GSU;
+			case 0x3: return Coprocessor.OBC1;
+			case 0x4: return Coprocessor.SA1;
+			case 0x5: return Coprocessor.SDD1;
+			case 0x6: return Coprocessor.SRTC;
+			case 0xE: return Coprocessor.OTHER;
+			case 0xF:
+				// 0xF? is "Custom"; the chip is then implied by the developer ID
+				// at +0x1A and the ROM size mostly. For the loader we just lump
+				// these under "Custom" so a downstream analyser can decide.
+				switch (cartridgeType & 0xFF) {
+					case 0xF5: return Coprocessor.CUSTOM_SPC7110;
+					case 0xF9: return Coprocessor.CUSTOM_SPC7110;
+					case 0xF6: return Coprocessor.CUSTOM_ST010_011;
+					case 0xF8: return Coprocessor.CUSTOM_ST018;
+					case 0xF3: return Coprocessor.CUSTOM_CX4;
+					default:   return Coprocessor.CUSTOM_UNKNOWN;
+				}
+			default:    return Coprocessor.CUSTOM_UNKNOWN;
+		}
+		// (lo intentionally unused for now; keep it parsed for description).
+	}
+
+	public boolean isSa1() { return getCoprocessor() == Coprocessor.SA1; }
+	public boolean isSuperFx() { return getCoprocessor() == Coprocessor.GSU; }
+	public boolean isSdd1() { return getCoprocessor() == Coprocessor.SDD1; }
+	public boolean isCx4() { return getCoprocessor() == Coprocessor.CUSTOM_CX4; }
+	public boolean isSpc7110() { return getCoprocessor() == Coprocessor.CUSTOM_SPC7110; }
 
 	public String describeRegion() {
 		switch (region) {
@@ -192,7 +269,8 @@ public final class SnesHeader {
 
 	public String describeMapMode() {
 		StringBuilder sb = new StringBuilder();
-		if (isLoRomMode()) sb.append("LoROM");
+		if (isExHiRomMode()) sb.append("ExHiROM");
+		else if (isLoRomMode()) sb.append("LoROM");
 		else if (isHiRomMode()) sb.append("HiROM");
 		else sb.append("Unknown");
 		if (isFastRom()) sb.append(", FastROM");
@@ -200,11 +278,32 @@ public final class SnesHeader {
 		return sb.toString();
 	}
 
+	public String describeCartridgeType() {
+		Coprocessor cp = getCoprocessor();
+		int lo = cartridgeType & 0x0F;
+		String comp;
+		switch (lo) {
+			case 0x0: comp = "ROM"; break;
+			case 0x1: comp = "ROM+RAM"; break;
+			case 0x2: comp = "ROM+RAM+battery"; break;
+			case 0x3: comp = "ROM+chip"; break;
+			case 0x4: comp = "ROM+chip+RAM"; break;
+			case 0x5: comp = "ROM+chip+RAM+battery"; break;
+			case 0x6: comp = "ROM+chip+battery"; break;
+			default:  comp = String.format("type=$%X", lo); break;
+		}
+		if (cp.isPresent()) {
+			return comp + " + " + cp.describe();
+		}
+		return comp;
+	}
+
 	public String describe() {
 		return String.format(
-			"title='%s' mapMode=%s romSizeCode=$%02X (%dKB) sramCode=$%02X (%dKB) " +
+			"title='%s' mapMode=%s cart=%s romSizeCode=$%02X (%dKB) sramCode=$%02X (%dKB) " +
 			"region=%s version=$%02X resetVec=$%04X checksum=$%04X complement=$%04X",
-			title, describeMapMode(), romSize, getRomBytes() / 1024,
+			title, describeMapMode(), describeCartridgeType(),
+			romSize, getRomBytes() / 1024,
 			ramSize, getSramBytes() / 1024,
 			describeRegion(), version, getResetVector(), checksum, complement);
 	}

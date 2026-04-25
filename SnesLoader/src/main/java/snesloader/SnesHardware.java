@@ -22,6 +22,21 @@ public final class SnesHardware {
 
 	private SnesHardware() {}
 
+	/**
+	 * Banks where the SNES CPU bus exposes the hardware-register window
+	 * (and LowRAM mirror). Used by {@link #applyLabels} when label mirroring
+	 * is enabled so e.g. {@code STA $4200} from a PHK/PLB function in bank
+	 * {@code $80} resolves to {@code NMITIMEN} instead of a bare address.
+	 *
+	 * <p>The list is intentionally non-contiguous: it skips $40-$7D (HiROM
+	 * full-bank ROM mirror) and $7E-$7F (WRAM), where the CPU bus does not
+	 * expose the I/O window.</p>
+	 */
+	private static final int[] LABEL_MIRROR_BANK_RANGES = {
+		0x00, 0x3F,
+		0x80, 0xBF
+	};
+
 	/** A single named register: address and a short doc-comment for the listing. */
 	private record Reg(long addr, String name, String comment) {}
 
@@ -159,6 +174,21 @@ public final class SnesHardware {
 	};
 
 	public static void applyLabels(FlatProgramAPI fpa, MessageLog log) {
+		applyLabels(fpa, log, false);
+	}
+
+	/**
+	 * Apply the canonical hardware-register labels at bank {@code $00}.
+	 *
+	 * @param mirrorAcrossBanks
+	 *            when {@code true}, also place the same labels at every bank
+	 *            in {@code $00-$3F} and {@code $80-$BF} so that decompiled
+	 *            code running with a non-zero DBR (typical after
+	 *            {@code PHK ; PLB}) shows symbolic register names rather
+	 *            than bare 24-bit addresses. Off by default to keep
+	 *            symbol-table size manageable on small projects.
+	 */
+	public static void applyLabels(FlatProgramAPI fpa, MessageLog log, boolean mirrorAcrossBanks) {
 		for (Reg r : REGISTERS) {
 			labelByte(fpa, r.addr, r.name, r.comment, log);
 		}
@@ -171,6 +201,151 @@ public final class SnesHardware {
 					String.format("DMA channel %d: %s", ch, DMA_PER_CHANNEL_COMMENTS[i]),
 					log);
 			}
+		}
+		if (mirrorAcrossBanks) {
+			mirrorLabelsAcrossBanks(fpa, log);
+		}
+	}
+
+	/**
+	 * Walk every byte-mapped {@code lowram_mirror_BB} / {@code hwregs_mirror_BB}
+	 * bank and copy each canonical hardware-register label to the same
+	 * offset in that bank. The decompiler keys symbol lookup on the
+	 * absolute address, so without this {@code STA $4200} from a function
+	 * with {@code DBR=$80} renders as {@code (*(byte*)0x80004200) = ...}.
+	 */
+	private static void mirrorLabelsAcrossBanks(FlatProgramAPI fpa, MessageLog log) {
+		for (int range = 0; range < LABEL_MIRROR_BANK_RANGES.length; range += 2) {
+			int lo = LABEL_MIRROR_BANK_RANGES[range];
+			int hi = LABEL_MIRROR_BANK_RANGES[range + 1];
+			for (int bank = lo; bank <= hi; bank++) {
+				if (bank == 0) continue; // canonical pass already labelled $00
+				long bankBase = ((long) bank) << 16;
+				for (Reg r : REGISTERS) {
+					labelOnly(fpa, bankBase | r.addr, r.name, log);
+				}
+				for (int ch = 0; ch < 8; ch++) {
+					long base = 0x4300L + (long) ch * 0x10L;
+					for (int i = 0; i < DMA_PER_CHANNEL_NAMES.length; i++) {
+						labelOnly(fpa, bankBase | (base + i),
+							String.format("%s%d", DMA_PER_CHANNEL_NAMES[i], ch), log);
+					}
+				}
+			}
+		}
+	}
+
+	/** MSU-1 audio/data streaming register window ($00:2000..$00:2007). */
+	private static final Reg[] MSU1_REGISTERS = new Reg[] {
+		new Reg(0x2000, "MSU_STATUS", "MSU-1 status (audio busy/data busy/track missing/...)"),
+		new Reg(0x2001, "MSU_READ", "MSU-1 data read port"),
+		new Reg(0x2002, "MSU_ID0", "MSU-1 identifier byte 0 (read returns 'S')"),
+		new Reg(0x2003, "MSU_ID1", "MSU-1 identifier byte 1 (read returns '-')"),
+		new Reg(0x2004, "MSU_ID2", "MSU-1 identifier byte 2 (read returns 'M')"),
+		new Reg(0x2005, "MSU_ID3", "MSU-1 identifier byte 3 (read returns 'S')"),
+		new Reg(0x2006, "MSU_ID4", "MSU-1 identifier byte 4 (read returns 'U')"),
+		new Reg(0x2007, "MSU_ID5", "MSU-1 identifier byte 5 (read returns '1')"),
+
+		new Reg(0x2000, "MSU_DATA_SEEK_LOW",  "MSU-1 data seek address (low) [write]"),
+		new Reg(0x2001, "MSU_DATA_SEEK_MID",  "MSU-1 data seek address (mid) [write]"),
+		new Reg(0x2002, "MSU_DATA_SEEK_HIGH", "MSU-1 data seek address (high) [write]"),
+		new Reg(0x2003, "MSU_DATA_SEEK_TOP",  "MSU-1 data seek address (top) [write]"),
+		new Reg(0x2004, "MSU_AUDIO_TRACK_LO", "MSU-1 audio track (low) [write]"),
+		new Reg(0x2005, "MSU_AUDIO_TRACK_HI", "MSU-1 audio track (high) [write]"),
+		new Reg(0x2006, "MSU_AUDIO_VOLUME",   "MSU-1 audio volume [write]"),
+		new Reg(0x2007, "MSU_AUDIO_CONTROL",  "MSU-1 audio control (play/repeat/resume) [write]"),
+	};
+
+	/** SA-1 coprocessor register window (subset; $00:2200..$00:23FF). */
+	private static final Reg[] SA1_REGISTERS = new Reg[] {
+		new Reg(0x2200, "SA1_CCNT", "SA-1 control / SNES->SA-1 message"),
+		new Reg(0x2201, "SA1_SIE",  "SNES interrupt enable"),
+		new Reg(0x2202, "SA1_SIC",  "SNES interrupt clear"),
+		new Reg(0x2203, "SA1_CRV_L","SA-1 CPU reset vector (low)"),
+		new Reg(0x2204, "SA1_CRV_H","SA-1 CPU reset vector (high)"),
+		new Reg(0x2205, "SA1_CNV_L","SA-1 CPU NMI vector (low)"),
+		new Reg(0x2206, "SA1_CNV_H","SA-1 CPU NMI vector (high)"),
+		new Reg(0x2207, "SA1_CIV_L","SA-1 CPU IRQ vector (low)"),
+		new Reg(0x2208, "SA1_CIV_H","SA-1 CPU IRQ vector (high)"),
+		new Reg(0x2209, "SA1_SCNT", "SA-1 status / SA-1->SNES message"),
+		new Reg(0x220A, "SA1_CIE",  "SA-1 interrupt enable"),
+		new Reg(0x220B, "SA1_CIC",  "SA-1 interrupt clear"),
+		new Reg(0x220C, "SA1_SNV_L","SNES NMI vector (low)"),
+		new Reg(0x220D, "SA1_SNV_H","SNES NMI vector (high)"),
+		new Reg(0x220E, "SA1_SIV_L","SNES IRQ vector (low)"),
+		new Reg(0x220F, "SA1_SIV_H","SNES IRQ vector (high)"),
+		new Reg(0x2220, "SA1_CXB",  "Super MMC bank for $C0-$CF"),
+		new Reg(0x2221, "SA1_DXB",  "Super MMC bank for $D0-$DF"),
+		new Reg(0x2222, "SA1_EXB",  "Super MMC bank for $E0-$EF"),
+		new Reg(0x2223, "SA1_FXB",  "Super MMC bank for $F0-$FF"),
+		new Reg(0x2224, "SA1_BMAPS","SA-1 BW-RAM bank for SNES"),
+		new Reg(0x2225, "SA1_BMAP", "SA-1 BW-RAM bank for SA-1"),
+		new Reg(0x2226, "SA1_SBWE", "SNES BW-RAM write enable"),
+		new Reg(0x2227, "SA1_CBWE", "SA-1 BW-RAM write enable"),
+		new Reg(0x2228, "SA1_BWPA", "BW-RAM write protection size"),
+		new Reg(0x2229, "SA1_SIWP", "SNES IWRAM write enable"),
+		new Reg(0x222A, "SA1_CIWP", "SA-1 IWRAM write enable"),
+	};
+
+	/** SuperFX (GSU-1/2) coprocessor register window (subset; $00:3000..$00:32FF). */
+	private static final Reg[] GSU_REGISTERS = new Reg[] {
+		new Reg(0x3030, "GSU_SFR",  "GSU status / flag register (low)"),
+		new Reg(0x3031, "GSU_SFRH", "GSU status / flag register (high)"),
+		new Reg(0x3033, "GSU_BRAMR","GSU backup-RAM enable"),
+		new Reg(0x3034, "GSU_PBR",  "GSU program bank"),
+		new Reg(0x3036, "GSU_ROMBR","GSU ROM bank"),
+		new Reg(0x3037, "GSU_CFGR", "GSU config / IRQ"),
+		new Reg(0x3038, "GSU_SCBR", "GSU screen base"),
+		new Reg(0x3039, "GSU_CLSR", "GSU clock select"),
+		new Reg(0x303A, "GSU_SCMR", "GSU screen mode"),
+		new Reg(0x303B, "GSU_VCR",  "GSU version code (read-only)"),
+		new Reg(0x303C, "GSU_RAMBR","GSU RAM bank"),
+		new Reg(0x303E, "GSU_CBR_L","GSU cache base (low)"),
+		new Reg(0x303F, "GSU_CBR_H","GSU cache base (high)"),
+	};
+
+	/** S-DD1 register window ($00:4800..$00:480F). */
+	private static final Reg[] SDD1_REGISTERS = new Reg[] {
+		new Reg(0x4800, "SDD1_DMA_TRIGGER", "S-DD1 DMA trigger (write to start a transfer)"),
+		new Reg(0x4801, "SDD1_DMA_ENABLE", "S-DD1 DMA enable mask"),
+		new Reg(0x4804, "SDD1_MMC0", "S-DD1 MMC bank for $C0-$CF"),
+		new Reg(0x4805, "SDD1_MMC1", "S-DD1 MMC bank for $D0-$DF"),
+		new Reg(0x4806, "SDD1_MMC2", "S-DD1 MMC bank for $E0-$EF"),
+		new Reg(0x4807, "SDD1_MMC3", "S-DD1 MMC bank for $F0-$FF"),
+	};
+
+	/**
+	 * Apply optional coprocessor-specific labels for chips advertised in the
+	 * cartridge header. Safe to call on any ROM; chips that aren't present
+	 * just produce no extra labels.
+	 */
+	public static void applyCoprocessorLabels(FlatProgramAPI fpa, SnesHeader.Coprocessor cp,
+			MessageLog log) {
+		if (cp == null || !cp.isPresent()) return;
+		switch (cp) {
+			case SA1:
+				for (Reg r : SA1_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case GSU:
+				for (Reg r : GSU_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case SDD1:
+				for (Reg r : SDD1_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			default:
+				break;
+		}
+	}
+
+	/**
+	 * Apply MSU-1 register labels at $00:2000..$00:2007. Most homebrew
+	 * targeting MSU-1 tests these registers explicitly so they're easy to
+	 * spot in disassembly even when the cartridge header doesn't advertise
+	 * the chip.
+	 */
+	public static void applyMsu1Labels(FlatProgramAPI fpa, MessageLog log) {
+		for (Reg r : MSU1_REGISTERS) {
+			labelByte(fpa, r.addr, r.name, r.comment, log);
 		}
 	}
 
@@ -190,6 +365,24 @@ public final class SnesHardware {
 			if (comment != null && !comment.isEmpty()) {
 				fpa.setEOLComment(addr, comment);
 			}
+		}
+		catch (InvalidInputException e) {
+			log.appendException(e);
+		}
+	}
+
+	/**
+	 * Like {@link #labelByte} but cheaper: only attaches the symbol, no
+	 * data type or EOL comment. Used by {@link #mirrorLabelsAcrossBanks}
+	 * where adding a {@code byte} data type at every mirror would force
+	 * Ghidra to redundantly type tens of thousands of cells.
+	 */
+	private static void labelOnly(FlatProgramAPI fpa, long offset, String name, MessageLog log) {
+		Address addr = fpa.getCurrentProgram().getAddressFactory()
+				.getDefaultAddressSpace().getAddress(offset);
+		try {
+			SymbolTable st = fpa.getCurrentProgram().getSymbolTable();
+			st.createLabel(addr, name, SourceType.IMPORTED);
 		}
 		catch (InvalidInputException e) {
 			log.appendException(e);
