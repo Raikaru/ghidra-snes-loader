@@ -255,7 +255,19 @@ public final class SnesHeader {
 		int lo = cartridgeType & 0x0F;
 		// lo 0..2 are plain ROM / ROM+RAM / ROM+RAM+battery -- no chip.
 		// lo 3..6 indicate "ROM + chip"; the high nibble then names the chip.
-		if (lo < 3) return Coprocessor.NONE;
+		// Exception: some early DSP games (e.g. Super Bowling / DSP-2) set the
+		// cartridge type byte to 0x00 even though a DSP chip is present. We use
+		// the ROM title to override those known edge cases.
+		if (lo < 3) {
+			// Non-zero hi nibble unambiguously indicates a chip.
+			if (hi != 0) return decodeCoprocessorFamily(hi);
+			// hi == 0 is ambiguous (plain ROM or DSP-x). Check known overrides.
+			return decodeDspOverrideByTitle();
+		}
+		return decodeCoprocessorFamily(hi);
+	}
+
+	private Coprocessor decodeCoprocessorFamily(int hi) {
 		switch (hi) {
 			case 0x0: return Coprocessor.DSP1;
 			case 0x1: return Coprocessor.GSU;
@@ -264,21 +276,35 @@ public final class SnesHeader {
 			case 0x4: return Coprocessor.SDD1;
 			case 0x5: return Coprocessor.SRTC;
 			case 0xE: return Coprocessor.OTHER;
-			case 0xF:
-				// 0xF? is "Custom"; the chip is then implied by the developer ID
-				// at +0x1A and the ROM size mostly. For the loader we just lump
-				// these under the relevant "Custom" enum member so the post-loader
-				// can lay down the right register window.
-				switch (cartridgeType & 0xFF) {
-					case 0xF3: return Coprocessor.CUSTOM_CX4;
-					case 0xF5: return Coprocessor.CUSTOM_SPC7110;
-					case 0xF9: return Coprocessor.CUSTOM_SPC7110;
-					case 0xF6: return Coprocessor.CUSTOM_ST010_011;
-					case 0xF8: return Coprocessor.CUSTOM_ST018;
-					default:   return Coprocessor.CUSTOM_UNKNOWN;
-				}
-			default:    return Coprocessor.CUSTOM_UNKNOWN;
+			case 0xF: return decodeCustomCoprocessor();
+			default:  return Coprocessor.CUSTOM_UNKNOWN;
 		}
+	}
+
+	private Coprocessor decodeCustomCoprocessor() {
+		switch (cartridgeType & 0xFF) {
+			case 0xF3: return Coprocessor.CUSTOM_CX4;
+			case 0xF5: return Coprocessor.CUSTOM_SPC7110;
+			case 0xF9: return Coprocessor.CUSTOM_SPC7110;
+			case 0xF6: return Coprocessor.CUSTOM_ST010_011;
+			case 0xF8: return Coprocessor.CUSTOM_ST018;
+			default:   return Coprocessor.CUSTOM_UNKNOWN;
+		}
+	}
+
+	/**
+	 * Some early DSP games (DSP-1/2/3/4) have a coprocessor but set the
+	 * cartridge type byte to 0x00, which the standard decode rules treat
+	 * as "plain ROM / no chip". Override by ROM title for known titles.
+	 */
+	private Coprocessor decodeDspOverrideByTitle() {
+		// The ROM title is the first 21 bytes of the header at $00:FFC0.
+		String t = getTitle();
+		if (t == null || t.isEmpty()) return Coprocessor.NONE;
+		// Known DSP games that don't set the cartridge type byte.
+		if (t.startsWith("SUPER BOWLING")) return Coprocessor.DSP1;
+		// Add more title overrides here as discovered.
+		return Coprocessor.NONE;
 	}
 
 	public boolean isSa1() { return getCoprocessor() == Coprocessor.SA1; }

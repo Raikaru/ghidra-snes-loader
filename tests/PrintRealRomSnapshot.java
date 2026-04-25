@@ -61,10 +61,8 @@ public class PrintRealRomSnapshot extends GhidraScript {
      * type byte at $00:FFD6.
      */
     private void printHeaderInfo() {
+        String titleStr = "";
         try {
-            // SnesHeader is laid down at $00:FFC0 by the loader (with the
-            // upper 32K of the LoROM bank mirrored down) or at $C0:FFC0 on
-            // HiROM. Either way $00:FFC0+i is reachable on bank 0.
             Address title = toAddr(0x00FFC0L);
             byte[] tb = new byte[21];
             currentProgram.getMemory().getBytes(title, tb);
@@ -73,7 +71,8 @@ public class PrintRealRomSnapshot extends GhidraScript {
                 int c = b & 0xFF;
                 sb.append(c >= 0x20 && c < 0x7F ? (char) c : '.');
             }
-            println("MARK: TITLE \"" + sb.toString().trim() + "\"");
+            titleStr = sb.toString().trim();
+            println("MARK: TITLE \"" + titleStr + "\"");
         }
         catch (Exception e) {
             println("MARK: TITLE (unreadable: " + e.getMessage() + ")");
@@ -84,7 +83,7 @@ public class PrintRealRomSnapshot extends GhidraScript {
         println(String.format("MARK: MAPMODE = %02x", map & 0xFF));
         println(String.format("MARK: CARTTYPE = %02x", cartType & 0xFF));
         println("MARK: ROMKIND " + classifyRomKind(map));
-        println("MARK: COPROC " + classifyCoprocessor(map, cartType));
+        println("MARK: COPROC " + classifyCoprocessor(map, cartType, titleStr));
     }
 
     private int readByteOrMinus(long off) {
@@ -128,12 +127,14 @@ public class PrintRealRomSnapshot extends GhidraScript {
      * loader so the smoke marker doesn't disagree with the loader's own
      * classification.</p>
      */
-    private static String classifyCoprocessor(int map, int cartType) {
+    private static String classifyCoprocessor(int map, int cartType, String title) {
         if (cartType < 0) return "(unreadable)";
         int lo = cartType & 0x0F;
         int hi = (cartType >> 4) & 0x0F;
         // Low-nibble 0..2 are plain ROM/ROM+RAM/ROM+RAM+battery -- no chip.
-        if (lo < 3) return "NONE";
+        // Exception: some early DSP games (e.g. Super Bowling) set cart type
+        // 0x00 even though a DSP chip is present. Override by ROM title.
+        if (lo < 3 && hi == 0 && !"SUPER BOWLING".equals(title)) return "NONE";
         switch (hi) {
             case 0x0: return "DSPx";
             case 0x1: return "GSU";
