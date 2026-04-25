@@ -114,16 +114,19 @@ jobs:
         shell: bash {0}
         run: |
           set -uo pipefail
-          # Ghidra has put the zip in different places across versions:
-          # SnesLoader/dist/, SnesLoader/build/distributions/, etc.
-          # Search broadly under the working tree.
-          mapfile -t hits < <(find . -type f -name '*ghidra_snes_loader.zip' -not -path './ghidra/*' 2>/dev/null)
+          # Search broadly: Ghidra has shifted the buildExtension output
+          # location across versions (SnesLoader/dist/,
+          # SnesLoader/build/distributions/, etc.).
+          echo "--- All zips outside the Ghidra checkout ---"
+          find . -type f -name '*.zip' -not -path './ghidra/*' 2>/dev/null
+          mapfile -t hits < <(find . -type f -name '*.zip' -not -path './ghidra/*' \
+            \( -name '*snes_loader*' -o -name '*SnesLoader*' \) 2>/dev/null)
           echo "Candidates:"
           printf '  %s\n' "${hits[@]:-(none)}"
           if [ "${#hits[@]}" -eq 0 ]; then
             echo "No extension zip produced." >&2
-            echo "--- SnesLoader contents ---"
-            find SnesLoader -maxdepth 3 -type d 2>/dev/null
+            echo "--- SnesLoader tree ---"
+            find SnesLoader -maxdepth 4 -type f 2>/dev/null | head -n 200
             exit 1
           fi
           echo "zip=${hits[0]}" >> "$GITHUB_OUTPUT"
