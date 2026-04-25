@@ -111,16 +111,23 @@ jobs:
 
       - name: Locate extension zip
         id: locate
+        shell: bash {0}
         run: |
-          set -euo pipefail
-          ZIP="$(ls SnesLoader/dist/*ghidra_snes_loader.zip | head -n1)"
-          if [ -z "$ZIP" ]; then
-            echo "No extension zip produced under SnesLoader/dist" >&2
-            ls -la SnesLoader/dist || true
+          set -uo pipefail
+          # Ghidra has put the zip in different places across versions:
+          # SnesLoader/dist/, SnesLoader/build/distributions/, etc.
+          # Search broadly under the working tree.
+          mapfile -t hits < <(find . -type f -name '*ghidra_snes_loader.zip' -not -path './ghidra/*' 2>/dev/null)
+          echo "Candidates:"
+          printf '  %s\n' "${hits[@]:-(none)}"
+          if [ "${#hits[@]}" -eq 0 ]; then
+            echo "No extension zip produced." >&2
+            echo "--- SnesLoader contents ---"
+            find SnesLoader -maxdepth 3 -type d 2>/dev/null
             exit 1
           fi
-          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
-          echo "Built $ZIP"
+          echo "zip=${hits[0]}" >> "$GITHUB_OUTPUT"
+          echo "Using ${hits[0]}"
 
       - name: Install built extension into Ghidra
         run: |
@@ -203,11 +210,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ghidra-snes-loader-${{ env.GHIDRA_VERSION }}
-          path: SnesLoader/dist/*ghidra_snes_loader.zip
+          path: ${{ steps.locate.outputs.zip }}
           if-no-files-found: error
 
       - name: Attach to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: SnesLoader/dist/*ghidra_snes_loader.zip
+          files: ${{ steps.locate.outputs.zip }}
