@@ -33,18 +33,37 @@ versioning follows [SemVer](https://semver.org/) for the extension's
   release, builds the extension zip, uploads it as a CI artifact, and
   attaches it to a GitHub release when the workflow runs on a release
   event.
-- Smoke-test step in the build workflow. Synthesizes a 128 KiB LoROM
-  via `tests/synth-min-lorom.py`, runs `analyzeHeadless` against it
-  with the freshly-built extension and the
-  [`ghidra-65816`](https://github.com/Raikaru/ghidra-65816) processor
-  module, then asserts via `tests/PrintSnesArtifacts.java` that the
-  expected vector labels (`vector_RESET`, `vector_NMI_native`, ...),
-  the bank-mirror blocks (`lowram_mirror_01`, `hwregs_mirror_3F`,
-  ...), the mirrored hardware-register labels
-  (`NMITIMEN @ $00:4200`, `$01:4200`, `$3F:4200`), and the `Reset`
-  function entry point are all present. A regression in any of those
-  features now fails CI and uploads the headless log + ROM image as a
-  failure artefact for offline diagnosis.
+- **Three-ROM behavioural smoke suite** in the build workflow.
+  Each CI run synthesizes its inputs from `tests/*.py` (no committed
+  ROM blobs), imports them via `analyzeHeadless`, and asserts via
+  `tests/PrintSnesArtifacts.java` that the loader produced the
+  required artefacts. Failure uploads the headless log, the
+  marker file, and the synthesised ROM as a CI artefact.
+  - `synth-min-lorom.py` — baseline LoROM mapping. Asserts language
+    ID, map-mode byte at `$00:FFD5`, every native + emulation vector
+    label, the bank-mirror blocks (`lowram_mirror_01`,
+    `hwregs_mirror_3F`, ...), the mirrored `NMITIMEN`
+    hardware-register labels (`@ $00:4200`, `$01:4200`,
+    `$3F:4200`), the `Reset` function entry point, and the
+    per-vector `ctx_EF=ctx_MF=ctx_XF=1` override at `$00:8000`.
+  - `synth-idiom-lorom.py` — a LoROM whose RESET stub exercises
+    `LDA #$80; PHA; PLB` and `LDA #$1234; TCD`. Asserts that
+    `SnesContextAnalyzer` propagated `DBR=$80` to the instruction
+    immediately following `PLB` and `DP=$1234` to the instruction
+    immediately following `TCD`. A regression in the analyser is
+    therefore a build failure, not a silent quality drop on user
+    ROMs.
+  - `synth-min-hirom.py` — a HiROM stub. Asserts `mapMode=$21` at
+    `$00:FFD5`, the HiROM bank-`$C0` primary block, and the
+    `$00:8000` and `$80:8000` upper-half mirrors that
+    `HiRomLoader` lays down. This is the first time the HiROM
+    code path has had CI coverage; previously only LoROM was
+    exercised.
+- Cross-platform build matrix: the workflow now builds on
+  `ubuntu-latest` *and* `windows-latest`, so packaging issues
+  specific to Git-Bash, the `sleigh.bat` launcher, or Gradle's
+  Windows shims surface in CI rather than at user install time.
+  Smoke tests run on Linux to keep matrix runtime bounded.
 
 ### Changed
 

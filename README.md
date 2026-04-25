@@ -127,24 +127,34 @@ flags. All default to **on**.
 
 ## Continuous integration
 
-The `Build Ghidra extension` workflow runs on every push and pull request:
+The `Build Ghidra extension` workflow runs on every push and pull
+request, on **`ubuntu-latest` and `windows-latest`** in parallel:
 
 1. Downloads the requested Ghidra release.
 2. Clones the companion [`ghidra-65816`](https://github.com/Raikaru/ghidra-65816)
-   processor module and compiles its SLEIGH spec.
-3. Builds the loader as a Ghidra extension zip.
+   processor module and compiles its SLEIGH spec (both `65816` and `65802`).
+3. Builds the loader as a Ghidra extension zip with Gradle 8.5 / JDK 21.
 4. Installs the extension into the Ghidra checkout.
-5. Synthesizes a 128 KiB LoROM via `tests/synth-min-lorom.py` and runs
-   `analyzeHeadless` against it with `tests/PrintSnesArtifacts.java` as
-   the post-script. The job greps the script's output for a fixed list of
-   `MARK:` lines (vector labels, bank mirrors, mirrored hardware-register
-   labels, the `Reset` function entry point, the language ID). A missing
-   marker fails the build and uploads the headless log + ROM image as a
-   `smoke-test-*` artefact for offline diagnosis.
+5. On Linux only, runs **three behavioural smoke tests**, each
+   synthesised on the fly (no committed ROM blobs) and run through
+   `analyzeHeadless` with `tests/PrintSnesArtifacts.java` as the
+   post-script:
+
+   | ROM                       | What it pins                                                                                                                                       |
+   | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `synth-min-lorom.py`      | LoROM detection, every vector label, bank-mirror blocks, mirrored `NMITIMEN @ $00/$01/$3F:4200`, `Reset` function entry, `ctx_E/M/X=1` at `$00:8000`. |
+   | `synth-idiom-lorom.py`    | DBR/DP analyser correctness: `LDA #$80; PHA; PLB` propagates `DBR=$80` to `$00:8009`, `LDA #$1234; TCD` propagates `DP=$1234` to `$00:8012`.        |
+   | `synth-min-hirom.py`      | HiROM mapping: bank-`$C0` primary block + `$00:8000` and `$80:8000` upper-half mirrors, map-mode byte `$21` at `$00:FFD5`.                          |
+
+A missing marker fails the build and uploads the headless log, the
+marker file, and the synthesised ROM as a `smoke-test-*` artefact for
+offline diagnosis. The Windows job verifies that the extension zip
+builds cleanly under Git-Bash + Gradle's Windows shims, which is where
+most user-visible packaging issues have historically appeared.
 
 This gives a regression test for the loader, the DBR/DP analyser, the
-mirror-block construction, and the per-vector context overrides without
-shipping any binary ROM in the repo.
+HiROM mapper, the mirror-block construction, and the per-vector
+context overrides — without shipping any binary ROM in the repo.
 
 ## Provenance
 
