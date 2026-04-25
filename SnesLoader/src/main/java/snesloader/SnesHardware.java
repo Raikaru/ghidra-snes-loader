@@ -274,11 +274,11 @@ public final class SnesHardware {
 		new Reg(0x220D, "SA1_SNV_H", "SNES NMI vector (high)"),
 		new Reg(0x220E, "SA1_SIV_L", "SNES IRQ vector (low)"),
 		new Reg(0x220F, "SA1_SIV_H", "SNES IRQ vector (high)"),
-		// Timer registers
-		new Reg(0x2210, "SA1_HCNT_L","HDMA timer count (low)"),
-		new Reg(0x2211, "SA1_HCNT_H","HDMA timer count (high)"),
-		new Reg(0x2212, "SA1_MCNT_L","SA-1 timer count (low)"),
-		new Reg(0x2213, "SA1_MCNT_H","SA-1 timer count (high)"),
+		// Timer control and HDMA timer registers
+		new Reg(0x2210, "SA1_SCNT",   "SA-1 timer restart control [write]"),
+		new Reg(0x2211, "SA1_STRV",   "SA-1 timer restart value [write]"),
+		new Reg(0x2212, "SA1_HCNT_L", "SA-1 HDMA timer count (low)"),
+		new Reg(0x2213, "SA1_HCNT_H", "SA-1 HDMA timer count (high)"),
 		// Super MMC bank registers
 		new Reg(0x2220, "SA1_CXB",   "Super MMC bank for $C0-$CF"),
 		new Reg(0x2221, "SA1_DXB",   "Super MMC bank for $D0-$DF"),
@@ -306,6 +306,7 @@ public final class SnesHardware {
 		new Reg(0x223B, "SA1_CHNCV_L","SA-1 character conversion value (low)"),
 		new Reg(0x223C, "SA1_CHNCV_M","SA-1 character conversion value (mid)"),
 		new Reg(0x223D, "SA1_CHNCV_H","SA-1 character conversion value (high)"),
+		new Reg(0x223F, "SA1_CHCFG",  "SA-1 character conversion config / status"),
 		// Bitmap register file
 		new Reg(0x2240, "SA1_BMAP0_L","SA-1 bitmap register 0 (low)"),
 		new Reg(0x2241, "SA1_BMAP0_H","SA-1 bitmap register 0 (high)"),
@@ -393,8 +394,8 @@ public final class SnesHardware {
 		new Reg(0x7F4B, "CX4_PRM3_H", "Cx4 parameter 3 (high)"),
 		new Reg(0x7F4C, "CX4_PRM4_L", "Cx4 parameter 4 (low)"),
 		new Reg(0x7F4D, "CX4_PRM4_H", "Cx4 parameter 4 (high)"),
-		new Reg(0x7F4E, "CX4_PRM5_L", "Cx4 parameter 5 (low)"),
-		new Reg(0x7F4F, "CX4_PRM5_H", "Cx4 parameter 5 (high)"),
+		new Reg(0x7F4E, "CX4_RES6_L", "Cx4 result 6 (low)"),
+		new Reg(0x7F4F, "CX4_PTR",    "Cx4 command / instruction pointer"),
 		new Reg(0x7F50, "CX4_PRM6_L", "Cx4 parameter 6 (low)"),
 		new Reg(0x7F51, "CX4_PRM6_H", "Cx4 parameter 6 (high)"),
 		new Reg(0x7F52, "CX4_PRM7_L", "Cx4 parameter 7 (low)"),
@@ -415,8 +416,24 @@ public final class SnesHardware {
 		new Reg(0x7F61, "CX4_RES6_H", "Cx4 result 6 (high)"),
 		new Reg(0x7F62, "CX4_RES7_L", "Cx4 result 7 (low)"),
 		new Reg(0x7F63, "CX4_RES7_H", "Cx4 result 7 (high)"),
+		// General-purpose register file ($7F80-$7FAF, 16 x 3 bytes)
+		new Reg(0x7F80, "CX4_REG0",   "Cx4 register 0"),
+		new Reg(0x7F81, "CX4_REG1",   "Cx4 register 1"),
+		new Reg(0x7F82, "CX4_REG2",   "Cx4 register 2"),
+		new Reg(0x7F83, "CX4_REG3",   "Cx4 register 3"),
+		new Reg(0x7F84, "CX4_REG4",   "Cx4 register 4"),
+		new Reg(0x7F85, "CX4_REG5",   "Cx4 register 5"),
+		new Reg(0x7F86, "CX4_REG6",   "Cx4 register 6"),
+		new Reg(0x7F87, "CX4_REG7",   "Cx4 register 7"),
+		new Reg(0x7F88, "CX4_REG8",   "Cx4 register 8"),
+		new Reg(0x7F89, "CX4_REG9",   "Cx4 register 9"),
+		new Reg(0x7F8A, "CX4_REGA",   "Cx4 register 10"),
+		new Reg(0x7F8B, "CX4_REGB",   "Cx4 register 11"),
+		new Reg(0x7F8C, "CX4_REGC",   "Cx4 register 12"),
+		new Reg(0x7F8D, "CX4_REGD",   "Cx4 register 13"),
+		new Reg(0x7F8E, "CX4_REGE",   "Cx4 register 14"),
+		new Reg(0x7F8F, "CX4_REGF",   "Cx4 register 15"),
 	};
-
 	/** S-RTC register window ($00:2800..$00:2801). */
 	private static final Reg[] SRTC_REGISTERS = new Reg[] {
 		new Reg(0x2800, "SRTC_CMD",  "S-RTC command / status"),
@@ -476,6 +493,9 @@ public final class SnesHardware {
 				break;
 			case CUSTOM_ST018:
 				for (Reg r : ST018_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case OBC1:
+				for (Reg r : OBC1_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
 				break;
 			default:
 				break;
