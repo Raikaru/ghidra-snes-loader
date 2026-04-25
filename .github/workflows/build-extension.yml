@@ -133,14 +133,23 @@ jobs:
           echo "Using ${hits[0]}"
 
       - name: Install built extension into Ghidra
+        shell: bash {0}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ZIP="${{ steps.locate.outputs.zip }}"
           dest="ghidra/Ghidra/Extensions"
           mkdir -p "$dest"
           unzip -oq "$ZIP" -d "$dest"
-          # The unpacked extension lives at $dest/ghidra_snes_loader/
-          test -f "$dest/ghidra_snes_loader/extension.properties"
+          echo "--- Installed extension layout ---"
+          find "$dest" -maxdepth 2 -type f | head -n 20
+          # The directory name inside the zip varies by Ghidra version
+          # (`ghidra_snes_loader` historically, `SnesLoader` from 12.x).
+          mapfile -t props < <(find "$dest" -maxdepth 2 -name extension.properties)
+          if [ "${#props[@]}" -eq 0 ]; then
+            echo "extension.properties not found after unpack" >&2
+            exit 1
+          fi
+          echo "Installed: ${props[0]}"
 
       - name: Smoke-test the loader on a synthesized LoROM
         env:
