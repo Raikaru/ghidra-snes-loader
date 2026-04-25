@@ -1,44 +1,44 @@
-**This repo is no longer maintained,** and I'm unlikely to come back to it in the future.
-
--------
-
 # ghidra-snes-loader
-Loader for SNES ROMs.  Works with Ghidra v9.1 or later only.
 
-## To Build and Install
+SNES ROM loader extension for Ghidra (LoROM/HiROM detection, header decoding,
+memory map creation, and vector labeling).
 
-Builds are done via Gradle, with the `GHIDRA_INSTALL_DIR` environment variable set to the path of
-Ghidra installation.
+This repo is the **loader half** of the setup. It depends on the companion
+65816 processor module:
+- `ghidra-65816` (language ID `65816:LE:16:default`)
 
-Linux:
-1. `cd` to the `SnesLoader` directory.
-2. Run `GHIDRA_INSTALL_DIR='/some/absolute/path' ./gradlew buildExtension`.
+## What it does
 
-Windows:
-1. `cd` to the `SnesLoader` directory.
-2. Run `set GHIDRA_INSTALL_DIR="C:\some\absolute\path" && gradlew.bat buildExtension`.
+- Detects SNES ROM images (including optional SMC copier headers)
+- Selects the 65816 language/compiler pair for import
+- Creates SNES-relevant memory blocks (WRAM/register windows/SRAM)
+- Applies cartridge header structures and names interrupt vectors
+- Sets Reset/vector entry points to improve initial analysis
 
-The built extension is in the `dist` directory.
-Copy it into `GHIDRA_INSTALL_DIR/Extensions/Ghidra/`.
+## Build
 
-## To Develop with Eclipse
-
-The repo doesn't contain any Eclipse project files, but we can generate them with Gradle.
-If you have an Eclipse workspace with an older version of the project, remove the project from the
-workspace before doing this.
+Build with Gradle and `GHIDRA_INSTALL_DIR` set to your local Ghidra path.
 
 Linux:
-1. `cd` to the `SnesLoader` directory.
-2. Run `GHIDRA_INSTALL_DIR='/some/absolute/path' ./gradlew cleanEclipse`.
-3. Run `GHIDRA_INSTALL_DIR='/some/absolute/path' ./gradlew eclipse`.
+1. `cd SnesLoader`
+2. `GHIDRA_INSTALL_DIR='/abs/path/to/ghidra' ./gradlew buildExtension`
 
 Windows:
-1. `cd` to the `SnesLoader` directory.
-2. Run `set GHIDRA_INSTALL_DIR="C:\some\absolute\path" && gradlew.bat cleanEclipse`.
-3. Run `set GHIDRA_INSTALL_DIR="C:\some\absolute\path" && gradlew.bat eclipse`.
+1. `cd SnesLoader`
+2. `set GHIDRA_INSTALL_DIR=C:\abs\path\to\ghidra && gradlew.bat buildExtension`
 
-Then in Eclipse: File --> Import --> Existing Projects into Workspace.
-Select the `SnesLoader` directory.
+The output extension zip is produced under `SnesLoader/dist`.
 
-Right-click the SnesLoader project in the project explorer, choose
-GhidraDev --> Link Ghidra...
+## Install order
+
+1. Install `ghidra-65816` into `Ghidra/Processors/65816`
+2. Compile `65816.slaspec` to `65816.sla` (via Ghidra `support/sleigh`)
+3. Install this extension zip into Ghidra extensions
+
+Without step 1, loader imports will fail to bind a valid 65816 language.
+
+## Provenance
+
+Originally based on `achan1989/ghidra-snes-loader` (archived upstream), with
+updates for modern Ghidra compatibility and tighter integration with the
+revised 65816 processor module.

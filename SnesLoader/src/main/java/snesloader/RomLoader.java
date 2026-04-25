@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 package snesloader;
 
 import java.io.IOException;
@@ -10,8 +11,9 @@ import ghidra.app.util.opinion.LoadSpec;
 import ghidra.program.model.listing.Program;
 import ghidra.util.task.TaskMonitor;
 
+/** Functional interface for ROM-mapping implementations (LoROM, HiROM). */
 @FunctionalInterface
 public interface RomLoader {
-	public boolean load(ByteProvider provider, LoadSpec loadSpec, List<Option> options, MessageLog log,
-		Program prog, TaskMonitor monitor, RomInfo romInfo) throws IOException;
+	boolean load(ByteProvider provider, LoadSpec loadSpec, List<Option> options, MessageLog log,
+			Program prog, TaskMonitor monitor, RomInfo romInfo) throws IOException;
 }

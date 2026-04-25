@@ -1,42 +1,47 @@
+// SPDX-License-Identifier: MIT
 package snesloader;
 
 import java.io.IOException;
 
 import ghidra.app.util.bin.ByteProvider;
 
+/**
+ * Parameters for one specific way of interpreting the ROM bytes:
+ * a {@link RomKind} (LoROM/HiROM mapping) plus the presence/absence of an
+ * optional 512-byte SMC copier header. Once {@link #bytesLookValid(ByteProvider)}
+ * has run successfully the parsed {@link SnesHeader} is cached on the instance.
+ */
 public class RomInfo {
 
 	public static final int SMC_HEADER_LEN = 512;
 
 	public enum RomKind {
-		LO_ROM(new LoRomLoader()),
-		HI_ROM(new HiRomLoader());
+		/** Mode 20/22/30/32. ROM seen at $00:8000, banks of 32 KiB. */
+		LO_ROM(0x7FC0, 0x40_0000, 0x8000, LoRomLoader::load),
+		/** Mode 21/25/31/35. ROM seen at $C0:0000, banks of 64 KiB. */
+		HI_ROM(0xFFC0, 0x40_0000, 0x10000, HiRomLoader::load);
 
-		private final RomInfoProvider infoProvider;
+		private final long snesHeaderOffset;
+		private final long maxRomSize;
+		private final long chunkSize;
+		private final RomLoader loader;
 
-		RomKind(RomInfoProvider infoProvider) {
-			this.infoProvider = infoProvider;
+		RomKind(long snesHeaderOffset, long maxRomSize, long chunkSize, RomLoader loader) {
+			this.snesHeaderOffset = snesHeaderOffset;
+			this.maxRomSize = maxRomSize;
+			this.chunkSize = chunkSize;
+			this.loader = loader;
 		}
 
-		private long getSnesHeaderOffset() {
-			return infoProvider.getSnesHeaderOffset();
-		}
-
-		private long getMaxRomSize() {
-			return infoProvider.getMaxRomSize();
-		}
-
-		private long getRomChunkSize() {
-			return infoProvider.getChunkSize();
-		}
-
-		private RomLoader getLoader() {
-			return infoProvider.getLoaderFunction();
-		}
+		public long getSnesHeaderOffset() { return snesHeaderOffset; }
+		public long getMaxRomSize() { return maxRomSize; }
+		public long getChunkSize() { return chunkSize; }
+		public RomLoader getLoader() { return loader; }
 	}
 
-	private RomKind kind;
-	private boolean hasSmcHeader;
+	private final RomKind kind;
+	private final boolean hasSmcHeader;
+	private SnesHeader header;
 
 	public RomInfo(RomKind kind, boolean hasSmcHeader) {
 		this.kind = kind;
@@ -44,33 +49,37 @@ public class RomInfo {
 	}
 
 	public boolean bytesLookValid(ByteProvider provider) {
-		boolean looksValid = true;
 		try {
 			long romLen = provider.length() - getStartOffset();
-			// Must contain at least one chunk.
-			if (romLen < getRomChunkSize()) {
-				looksValid = false;
+			if (romLen < kind.getChunkSize()) {
+				return false;
 			}
-			// ROM dumps should be a multiple of this chunk size (SMC header excepted). 
-			if (romLen % getRomChunkSize() != 0) {
-				looksValid = false;
+			// Tolerate non-aligned dumps (e.g. dumps with trailing garbage); only
+			// reject if much bigger than the LoROM/HiROM 4 MB ceiling allows for.
+			if (romLen > kind.getMaxRomSize() * 2) {
+				return false;
 			}
-			// Too big to load.
-			if (romLen > kind.getMaxRomSize()) {
-				looksValid = false;
+			SnesHeader h = SnesHeader.fromProviderAtOffset(provider, getSnesHeaderOffset());
+			if (!h.looksValid()) {
+				return false;
 			}
-
-			SnesHeader snesHeader = SnesHeader.fromProviderAtOffset(provider, getSnesHeaderOffset());
-			looksValid = looksValid && snesHeader.looksValid();
-		} catch (IOException e) {
-			looksValid = false;
+			// Disambiguate LoROM vs HiROM via the map-mode low nibble.
+			if (kind == RomKind.LO_ROM && !h.isLoRomMode()) {
+				return false;
+			}
+			if (kind == RomKind.HI_ROM && !h.isHiRomMode()) {
+				return false;
+			}
+			this.header = h;
+			return true;
 		}
-
-		return looksValid;
+		catch (IOException e) {
+			return false;
+		}
 	}
 
 	public long getStartOffset() {
-		return (hasSmcHeader ? SMC_HEADER_LEN : 0);
+		return hasSmcHeader ? SMC_HEADER_LEN : 0L;
 	}
 
 	public long getSnesHeaderOffset() {
@@ -78,38 +87,40 @@ public class RomInfo {
 	}
 
 	public long getRomChunkSize() {
-		return kind.getRomChunkSize();
+		return kind.getChunkSize();
 	}
 
-	public String getDescription() {
-		return kind.toString() +
-			(hasSmcHeader ? " with SMC header" : "");
+	public RomKind getKind() {
+		return kind;
+	}
+
+	public boolean hasSmcHeader() {
+		return hasSmcHeader;
+	}
+
+	public SnesHeader getHeader() {
+		return header;
 	}
 
 	public RomLoader getLoader() {
 		return kind.getLoader();
 	}
 
+	public String getDescription() {
+		return kind.toString() + (hasSmcHeader ? " (with SMC copier header)" : "");
+	}
+
 	@Override
 	public int hashCode() {
-		final int prime = 31;
-		int result = 1;
-		result = prime * result + (hasSmcHeader ? 1231 : 1237);
-		result = prime * result + ((kind == null) ? 0 : kind.hashCode());
-		return result;
+		return kind.hashCode() * 31 + (hasSmcHeader ? 1 : 0);
 	}
 
 	@Override
 	public boolean equals(Object obj) {
-		if (obj == null)
+		if (!(obj instanceof RomInfo)) {
 			return false;
-		if (getClass() != obj.getClass())
-			return false;
+		}
 		RomInfo other = (RomInfo) obj;
-		if (hasSmcHeader != other.hasSmcHeader)
-			return false;
-		if (kind != other.kind)
-			return false;
-		return true;
+		return kind == other.kind && hasSmcHeader == other.hasSmcHeader;
 	}
 }

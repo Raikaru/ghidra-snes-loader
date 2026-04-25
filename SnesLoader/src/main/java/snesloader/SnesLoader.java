@@ -1,43 +1,50 @@
+// SPDX-License-Identifier: MIT
+// Originally by achan1989; expanded for headless / current Ghidra usage.
 package snesloader;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
 
 import ghidra.app.util.Option;
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.opinion.AbstractProgramLoader;
+import ghidra.app.util.opinion.AbstractLibrarySupportLoader;
 import ghidra.app.util.opinion.LoadSpec;
 import ghidra.app.util.opinion.Loader;
 import ghidra.app.util.opinion.LoaderTier;
-import ghidra.framework.model.DomainFolder;
+import ghidra.app.util.opinion.QueryOpinionService;
+import ghidra.app.util.opinion.QueryResult;
 import ghidra.framework.model.DomainObject;
-import ghidra.program.model.lang.CompilerSpec;
-import ghidra.program.model.lang.Endian;
-import ghidra.program.model.lang.Language;
-import ghidra.program.model.lang.LanguageCompilerSpecPair;
-import ghidra.program.model.lang.LanguageCompilerSpecQuery;
-import ghidra.program.model.lang.Processor;
-import ghidra.program.model.lang.ProcessorNotFoundException;
+import ghidra.program.flatapi.FlatProgramAPI;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
-import ghidra.util.exception.CancelledException;
-import ghidra.util.task.TaskMonitor;
+
 import snesloader.RomInfo.RomKind;
 
 /**
- * TODO: Provide class-level documentation that describes what this loader does.
+ * Top-level Ghidra loader for Super Nintendo / Super Famicom ROMs.
+ *
+ * <p>Handles ROM kind detection (LoROM/HiROM, with or without an SMC copier
+ * header), maps ROM banks into the 65816 24-bit bus space, and (optionally)
+ * lays down WRAM, hardware-register, SRAM and interrupt-vector annotations
+ * so that the program is immediately useful for analysis.</p>
  */
-public class SnesLoader extends AbstractProgramLoader {
+public class SnesLoader extends AbstractLibrarySupportLoader {
 
-	public static final String APPLY_SNES_LABELS_OPTION_NAME = "Apply SNES-specific Labels";
-	public static final String ANCHOR_SNES_LABELS_OPTION_NAME = "Anchor SNES-specific Labels";
-	public static final Integer SIXTEEN_BIT = 16;
+	public static final String LOADER_NAME = "SNES ROM";
+
+	public static final String OPT_HW_REGS = "Map SNES hardware registers";
+	public static final String OPT_VECTORS = "Mark interrupt vectors";
+	public static final String OPT_HEADER_DT = "Apply Cartridge Header datatype";
+	public static final String OPT_LOWRAM_MIRROR = "Map LowRAM mirror at $00:0000";
+	public static final String OPT_SRAM = "Map cartridge SRAM (when present)";
 
 	@Override
 	public String getName() {
-		// This name must match the name of the loader in the .opinion files.
-		return "SNES ROM";
+		return LOADER_NAME;
 	}
 
 	@Override
@@ -51,149 +58,171 @@ public class SnesLoader extends AbstractProgramLoader {
 	}
 
 	@Override
-	public boolean supportsLoadIntoProgram() {
-		return false;
-	}
-
-	@Override
 	public Collection<LoadSpec> findSupportedLoadSpecs(ByteProvider provider) throws IOException {
 		List<LoadSpec> loadSpecs = new ArrayList<>();
-		getLanguageService();  // Ensure Processors are loaded.
-		Processor snesProcessor;
-		try {
-			snesProcessor = Processor.toProcessor("65816");
-		} catch (ProcessorNotFoundException e) {
+		if (detectRomKinds(provider).isEmpty()) {
 			return loadSpecs;
 		}
-
-		Collection<RomInfo> detectedRomKinds = detectRomKind(provider);
-		if (!detectedRomKinds.isEmpty()) {
-			LanguageCompilerSpecQuery query = new LanguageCompilerSpecQuery(
-				snesProcessor, Endian.LITTLE, SIXTEEN_BIT, null, null);
-			List<LanguageCompilerSpecPair> lcsps =
-				getLanguageService().getLanguageCompilerSpecPairs(query);
-			for (LanguageCompilerSpecPair lcsp : lcsps) {
-				loadSpecs.add(new LoadSpec(this, 0, lcsp, false));
-			}
+		// QueryOpinionService is the canonical way to look up languages declared in
+		// `<processor>.opinion` files. It does the right thing without forcing the
+		// 65816 processor to be registered ahead of time (Processor.toProcessor
+		// throws a ProcessorNotFoundException for lazily-registered processors when
+		// it's the first loader to run).
+		List<QueryResult> results = QueryOpinionService.query(LOADER_NAME, null, null);
+		if (results == null || results.isEmpty()) {
+			return loadSpecs;
 		}
-
+		for (QueryResult r : results) {
+			loadSpecs.add(new LoadSpec(this, 0, r));
+		}
 		return loadSpecs;
 	}
 
-	private Collection<RomInfo> detectRomKind(ByteProvider provider) {
-		Collection<RomInfo> validRomKinds = new HashSet<RomInfo>();
-		RomInfo[] candidateRomKinds = new RomInfo[] {
-			new RomInfo(RomKind.LO_ROM, true),
-			new RomInfo(RomKind.LO_ROM, false),
-			new RomInfo(RomKind.HI_ROM, true),
-			new RomInfo(RomKind.HI_ROM, false)};
-
-		for (RomInfo rom : candidateRomKinds) {
-			if (rom.bytesLookValid(provider)) {
-				validRomKinds.add(rom);
+	private static Collection<RomInfo> detectRomKinds(ByteProvider provider) {
+		Collection<RomInfo> valid = new HashSet<>();
+		for (RomKind kind : RomKind.values()) {
+			for (boolean smc : new boolean[] { false, true }) {
+				RomInfo r = new RomInfo(kind, smc);
+				if (r.bytesLookValid(provider)) {
+					valid.add(r);
+				}
 			}
 		}
-
-		return validRomKinds;
+		return valid;
 	}
 
 	@Override
-	protected boolean loadProgramInto(ByteProvider provider, LoadSpec loadSpec,
-			List<Option> options, MessageLog log, Program prog, TaskMonitor monitor) {
-		return false;
-	}
+	protected void load(Program program, ImporterSettings settings) throws IOException {
+		ByteProvider provider = settings.provider();
+		MessageLog log = settings.log();
 
-	@Override
-	protected List<Program> loadProgram(ByteProvider provider, String programName,
-			DomainFolder programFolder, LoadSpec loadSpec, List<Option> options, MessageLog log,
-			Object consumer, TaskMonitor monitor)
-			throws IOException, CancelledException {
-		List<Program> programs = new ArrayList<Program>();
-		Collection<RomInfo> detectedRomKinds = detectRomKind(provider);
-		if (detectedRomKinds.size() == 0) {
-			// Weird but ok.
-			throw new IOException("Not a valid SNES ROM (has the file changed since starting the import?)");
+		Collection<RomInfo> detected = detectRomKinds(provider);
+		if (detected.isEmpty()) {
+			throw new IOException("Not a valid SNES ROM (file changed since import?)");
 		}
-		if (detectedRomKinds.size() > 1) {
-			String errSummary = "Can't uniquely determine what kind of SNES ROM this is.";
-			StringBuilder sb = new StringBuilder(errSummary);
-			sb.append(" Could be any of:");
-			sb.append(System.lineSeparator());
-			for (RomInfo rom : detectedRomKinds) {
-				sb.append(rom.getDescription());
-				sb.append(System.lineSeparator());
+		RomInfo romInfo = pickBestMatch(detected);
+		if (romInfo == null) {
+			StringBuilder sb = new StringBuilder("Cannot uniquely identify SNES ROM. Candidates:\n");
+			for (RomInfo r : detected) {
+				sb.append("  ").append(r.getDescription()).append('\n');
 			}
-			Msg.showError(this, null, "Can't load ROM", sb.toString());
-			return programs;
-		}
-		if (!loadSpec.isComplete()) {
-			Msg.debug(this, "loadSpec is not complete.");
-			return programs;
+			Msg.showError(this, null, "SNES Loader", sb.toString());
+			throw new IOException(sb.toString());
 		}
 
-		LanguageCompilerSpecPair pair = loadSpec.getLanguageCompilerSpec();
-		Language importerLanguage = getLanguageService().getLanguage(pair.languageID);
-		CompilerSpec importerCompilerSpec =
-			importerLanguage.getCompilerSpecByID(pair.compilerSpecID);
+		// Re-parse with the chosen kind so the header is cached on the RomInfo.
+		romInfo.bytesLookValid(provider);
 
-		Program prog = createProgram(provider, programName, null, getName(),
-			importerLanguage, importerCompilerSpec, consumer);
-
-		RomInfo romInfo = detectedRomKinds.iterator().next();
-		boolean success = loadWithTransaction(provider, loadSpec, options, log, prog, monitor, romInfo);
-		if (success) {
-			programs.add(prog);
+		log.appendMsg(LOADER_NAME, "Loading " + romInfo.getDescription());
+		if (romInfo.getHeader() != null) {
+			log.appendMsg(LOADER_NAME, romInfo.getHeader().describe());
 		}
 
-		return programs;
-	}
+		FlatProgramAPI fpa = new FlatProgramAPI(program, settings.monitor());
 
-	private boolean loadWithTransaction(ByteProvider provider, LoadSpec loadSpec,
-			List<Option> options, MessageLog log, Program prog, TaskMonitor monitor, RomInfo romInfo)
-			throws IOException {
-		prog.setEventsEnabled(false);
-		int transactionID = prog.startTransaction("Loading - " + getName());
-		RomLoader loader = romInfo.getLoader();
-		boolean success = false;
+		// 1) Map ROM into the 65816 bus.
+		boolean ok = romInfo.getLoader().load(provider, settings.loadSpec(), settings.options(),
+				log, program, settings.monitor(), romInfo);
+		if (!ok) {
+			throw new IOException("ROM mapping failed");
+		}
+
+		// 2) Apply WRAM / hardware regs / SRAM / vectors / header DT, per options.
+		SnesPostLoader.Options opts = parseOptions(settings.options());
 		try {
-			success = loader.load(provider, loadSpec, options, log, prog, monitor, romInfo);
-			return success;
+			SnesPostLoader.apply(fpa, romInfo, opts, log);
 		}
-		finally {
-			prog.endTransaction(transactionID, success);
-			prog.setEventsEnabled(true);
+		catch (Exception e) {
+			log.appendException(e);
 		}
 	}
 
 	@Override
 	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
-			DomainObject domainObject, boolean isLoadIntoProgram) {
+			DomainObject domainObject, boolean loadIntoProgram, boolean mirrorFsLayout) {
 		List<Option> list =
-			super.getDefaultOptions(provider, loadSpec, domainObject, isLoadIntoProgram);
+			super.getDefaultOptions(provider, loadSpec, domainObject, loadIntoProgram, mirrorFsLayout);
 
-		list.add(new Option(APPLY_SNES_LABELS_OPTION_NAME, true, Boolean.class,
-			Loader.COMMAND_LINE_ARG_PREFIX + "-applySnesLabels"));
-		list.add(new Option(ANCHOR_SNES_LABELS_OPTION_NAME, true, Boolean.class,
-			Loader.COMMAND_LINE_ARG_PREFIX + "-anchorSnesLabels"));
-
+		list.add(new Option(OPT_HW_REGS, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesHwRegs"));
+		list.add(new Option(OPT_VECTORS, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesVectors"));
+		list.add(new Option(OPT_HEADER_DT, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesHeader"));
+		list.add(new Option(OPT_LOWRAM_MIRROR, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesLowRamMirror"));
+		list.add(new Option(OPT_SRAM, true, Boolean.class,
+			Loader.COMMAND_LINE_ARG_PREFIX + "-snesSram"));
 		return list;
 	}
 
 	@Override
-	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options, Program program) {
-		String error = super.validateOptions(provider, loadSpec, options, program);
-		
-		if (error == null && options != null) {
-			for (Option option : options) {
-				String name = option.getName();
-				if (name.equals(APPLY_SNES_LABELS_OPTION_NAME) ||
-					name.equals(ANCHOR_SNES_LABELS_OPTION_NAME)) {
-					if (!Boolean.class.isAssignableFrom(option.getValueClass())) {
-						error = "Invalid type for option: " + name + " - " + option.getValueClass();
-					}
+	public String validateOptions(ByteProvider provider, LoadSpec loadSpec, List<Option> options,
+			Program program) {
+		String err = super.validateOptions(provider, loadSpec, options, program);
+		if (err != null || options == null) {
+			return err;
+		}
+		for (Option opt : options) {
+			String n = opt.getName();
+			if (OPT_HW_REGS.equals(n) || OPT_VECTORS.equals(n) || OPT_HEADER_DT.equals(n)
+					|| OPT_LOWRAM_MIRROR.equals(n) || OPT_SRAM.equals(n)) {
+				if (!Boolean.class.isAssignableFrom(opt.getValueClass())) {
+					return "Invalid type for option: " + n + " - " + opt.getValueClass();
 				}
 			}
 		}
-		return error;
+		return null;
+	}
+
+	private static RomInfo pickBestMatch(Collection<RomInfo> candidates) {
+		if (candidates.size() == 1) {
+			return candidates.iterator().next();
+		}
+		// Prefer no-SMC over SMC, and LoROM over HiROM as a tiebreaker.
+		RomInfo best = null;
+		int bestRank = Integer.MIN_VALUE;
+		for (RomInfo r : candidates) {
+			int rank = (r.hasSmcHeader() ? 0 : 10) + (r.getKind() == RomKind.HI_ROM ? 0 : 1);
+			if (rank > bestRank) {
+				bestRank = rank;
+				best = r;
+			}
+		}
+		return best;
+	}
+
+	private static SnesPostLoader.Options parseOptions(List<Option> options) {
+		SnesPostLoader.Options o = new SnesPostLoader.Options();
+		if (options == null) {
+			return o;
+		}
+		for (Option opt : options) {
+			Object v = opt.getValue();
+			if (!(v instanceof Boolean)) {
+				continue;
+			}
+			boolean b = (Boolean) v;
+			switch (opt.getName()) {
+				case OPT_HW_REGS:
+					o.mapHwRegs = b;
+					break;
+				case OPT_VECTORS:
+					o.markVectors = b;
+					break;
+				case OPT_HEADER_DT:
+					o.applyHeaderDataType = b;
+					break;
+				case OPT_LOWRAM_MIRROR:
+					o.mapLowRamMirror = b;
+					break;
+				case OPT_SRAM:
+					o.mapSram = b;
+					break;
+				default:
+					break;
+			}
+		}
+		return o;
 	}
 }

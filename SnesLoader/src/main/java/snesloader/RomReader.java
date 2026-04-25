@@ -1,17 +1,23 @@
+// SPDX-License-Identifier: MIT
 package snesloader;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import ghidra.app.util.bin.ByteProvider;
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 
+/**
+ * Iterates the ROM byte provider in fixed-size chunks (32 KiB for LoROM,
+ * 64 KiB for HiROM). Each chunk knows both its provider offsets and its ROM
+ * offsets (i.e. provider offset minus any SMC copier header).
+ */
 public class RomReader implements Iterable<RomReader.RomChunk> {
-	private RomInfo romInfo;
-	private ByteProvider provider;
+
+	private final RomInfo romInfo;
+	private final ByteProvider provider;
 
 	public RomReader(RomInfo romInfo, ByteProvider provider) {
 		this.romInfo = romInfo;
@@ -24,22 +30,19 @@ public class RomReader implements Iterable<RomReader.RomChunk> {
 	}
 
 	private class RomChunkIterator implements Iterator<RomChunk> {
-		private int nextChunkIdx;
+		private int nextChunkIdx = 0;
 
-		public RomChunkIterator() {
-			nextChunkIdx = 0;
+		private long chunkStart() {
+			return romInfo.getStartOffset() + (long) nextChunkIdx * romInfo.getRomChunkSize();
 		}
 
-		private ImmutablePair<Long, Long> getNextChunkOffsets() {
-			long nextChunkStartOffset = romInfo.getStartOffset() + (nextChunkIdx * romInfo.getRomChunkSize());
-			long nextChunkEndOffset = (nextChunkStartOffset + romInfo.getRomChunkSize()) - 1;
-			return ImmutablePair.of(nextChunkStartOffset, nextChunkEndOffset);
+		private long chunkEnd() {
+			return chunkStart() + romInfo.getRomChunkSize() - 1;
 		}
 
 		@Override
 		public boolean hasNext() {
-			var nextChunkOffsets = getNextChunkOffsets();
-			return provider.isValidIndex(nextChunkOffsets.right);
+			return provider.isValidIndex(chunkEnd());
 		}
 
 		@Override
@@ -47,23 +50,23 @@ public class RomReader implements Iterable<RomReader.RomChunk> {
 			if (!hasNext()) {
 				throw new NoSuchElementException();
 			}
-			var nextChunkOffsets = getNextChunkOffsets();
+			long start = chunkStart();
+			long end = chunkEnd();
 			nextChunkIdx++;
-			return new RomChunk(nextChunkOffsets.left, nextChunkOffsets.right);
+			return new RomChunk(start, end);
 		}
 	}
 
 	public class RomChunk {
-		private long providerStartOffset;
-		private long providerEndOffset;
-		private long length;
+		private final long providerStartOffset;
+		private final long providerEndOffset;
+		private final long length;
 		private byte[] bytes;
 
 		public RomChunk(long providerStartOffset, long providerEndOffset) {
 			this.providerStartOffset = providerStartOffset;
 			this.providerEndOffset = providerEndOffset;
 			this.length = (providerEndOffset - providerStartOffset) + 1;
-			this.bytes = null;
 		}
 
 		public InputStream getInputStream() throws IOException {
@@ -73,9 +76,17 @@ public class RomReader implements Iterable<RomReader.RomChunk> {
 			return new ByteArrayInputStream(bytes);
 		}
 
-		public ImmutablePair<Long, Long> getRomAddresses() {
-			long smcHeader = romInfo.getStartOffset();
-			return ImmutablePair.of(providerStartOffset - smcHeader, providerEndOffset - smcHeader);
+		/** Provider-space offset (file-relative). */
+		public long getProviderStart() { return providerStartOffset; }
+		public long getProviderEnd() { return providerEndOffset; }
+
+		/** ROM-space offset: same as provider, minus the SMC copier header. */
+		public long getRomStart() {
+			return providerStartOffset - romInfo.getStartOffset();
+		}
+
+		public long getRomEnd() {
+			return providerEndOffset - romInfo.getStartOffset();
 		}
 
 		public long getLength() {
