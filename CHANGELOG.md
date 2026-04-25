@@ -4,6 +4,54 @@ All notable changes to this loader extension are documented here. The
 versioning follows [SemVer](https://semver.org/) for the extension's
 `extension.properties`.
 
+
+## [1.2.2] — 2026-04-25
+
+Expanded coprocessor coverage: GSU (SuperFX) RAM mapping, SA-1
+BW-RAM mapping, S-DD1 register window, and DSP-x detection for
+cartridges that don't advertise their chip in the standard header
+byte (e.g. Super Bowling / DSP-2). 18/18 on the real-ROM corpus.
+
+### Added
+- **GSU (SuperFX) RAM and vectors.** 64 KiB RAM block at
+  `$70:0000-$70:FFFF` with a labeled vector table, separate from
+  SNES WRAM. Verified on Star Fox, Yoshi's Island, and Doom (GSU2).
+- **SA-1 BW-RAM mapping.** 256 KiB BW-RAM at `$40-$43:0000-FFFF`
+  with per-bank byte-mapped mirrors in `$44-$4F` and the low-memory
+  window at `$00-$3F/$80-$BF:6000-$7FFF` (with per-bank mirrors
+  matching the LowRAM/hwregs pattern). Verified on Super Mario RPG.
+- **S-DD1 register window.** Extended `HW_REGS_LEN` from `0x2400` to
+  `0x3000` so the S-DD1 I/O registers at `$00:4800-$00:4807` are
+  covered by the primary hwregs block. Star Ocean now reports 214
+  hardware symbols (was 208).
+- **DSP-x detection for non-standard headers.** Some early DSP games
+  (Super Bowling / DSP-2) set cartridge type byte `0x00`, which the
+  standard SNES header rules treat as plain ROM. Added a title-based
+  override and a general rule: when low nibble < 3 but high nibble
+  != 0, still return the coprocessor from the high nibble.
+- **`docs/SMOKE-RUN.md`** documenting the Docker-based real-ROM smoke
+  test workflow for contributors.
+- **CI: synthetic smoke tests** now run on push to master, preserving
+  the existing 3-ROM synth-min-LoROM / idiom-LoROM / min-HiROM suite.
+
+### Fixed
+- **GSU_RAM_LEN was 0x100000 (1 MiB)** overlapping the WRAM block at
+  `$7E:0000-$7F:FFFF`. Corrected to `0x10000` (64 KiB).
+- **SA-1 BW-RAM mirrors** used `SA1_BWRAM_LEN` (256 KiB) per individual
+  bank, creating 4-bank overlapping blocks. Each mirror now uses
+  `0x10000` (64 KiB) per individual bank.
+
+### Changed
+- `HW_REGS_LEN` increased from `0x2400` to `0x3000` to cover
+  coprocessor I/O at `$00:4800-$00:4FFF`.
+- `SnesHeader.getCoprocessor()` refactored into three helper methods
+  (`decodeCoprocessorFamily`, `decodeCustomCoprocessor`,
+  `decodeDspOverrideByTitle`) for clarity.
+- Smoke marker `PrintRealRomSnapshot.classifyCoprocessor()` synced
+  with `SnesHeader` logic (accepts ROM title for DSP override).
+
+[1.2.2]: https://github.com/Raikaru/ghidra-snes-loader/releases/tag/v1.2.2
+
 ## [1.2.1] — 2026-04-25
 
 Cartridge-corpus pass: every fix in this release is the direct result
