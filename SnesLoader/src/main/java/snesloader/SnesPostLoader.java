@@ -36,7 +36,7 @@ public final class SnesPostLoader {
 	public static final long LOWRAM_BUS_START = 0x00_0000L;
 	public static final long LOWRAM_LEN = 0x2000L;        // $00:0000-$00:1FFF
 	public static final long HW_REGS_BUS_START = 0x00_2000L;
-	public static final long HW_REGS_LEN = 0x3000L;       // $00:2000-$00:4FFF (covers MSU-1, SA-1, GSU, S-DD1, CX4, expansion)
+	public static final long HW_REGS_LEN = 0x6000L;       // $00:2000-$00:7FFF (full I/O window: PPU/APU/CPU/DMA + all coprocessors)
 	/**
 	 * Banks where the LowRAM mirror and the hardware-register window are
 	 * visible to the 65816. The SNES bus mirrors WRAM low-bank ($7E:0000-$1FFF)

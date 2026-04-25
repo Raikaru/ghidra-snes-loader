@@ -256,35 +256,100 @@ public final class SnesHardware {
 		new Reg(0x2007, "MSU_AUDIO_CONTROL",  "MSU-1 audio control (play/repeat/resume) [write]"),
 	};
 
-	/** SA-1 coprocessor register window (subset; $00:2200..$00:23FF). */
+	/** SA-1 coprocessor register window (complete; $00:2200..$00:230E). */
 	private static final Reg[] SA1_REGISTERS = new Reg[] {
-		new Reg(0x2200, "SA1_CCNT", "SA-1 control / SNES->SA-1 message"),
-		new Reg(0x2201, "SA1_SIE",  "SNES interrupt enable"),
-		new Reg(0x2202, "SA1_SIC",  "SNES interrupt clear"),
-		new Reg(0x2203, "SA1_CRV_L","SA-1 CPU reset vector (low)"),
-		new Reg(0x2204, "SA1_CRV_H","SA-1 CPU reset vector (high)"),
-		new Reg(0x2205, "SA1_CNV_L","SA-1 CPU NMI vector (low)"),
-		new Reg(0x2206, "SA1_CNV_H","SA-1 CPU NMI vector (high)"),
-		new Reg(0x2207, "SA1_CIV_L","SA-1 CPU IRQ vector (low)"),
-		new Reg(0x2208, "SA1_CIV_H","SA-1 CPU IRQ vector (high)"),
-		new Reg(0x2209, "SA1_SCNT", "SA-1 status / SA-1->SNES message"),
-		new Reg(0x220A, "SA1_CIE",  "SA-1 interrupt enable"),
-		new Reg(0x220B, "SA1_CIC",  "SA-1 interrupt clear"),
-		new Reg(0x220C, "SA1_SNV_L","SNES NMI vector (low)"),
-		new Reg(0x220D, "SA1_SNV_H","SNES NMI vector (high)"),
-		new Reg(0x220E, "SA1_SIV_L","SNES IRQ vector (low)"),
-		new Reg(0x220F, "SA1_SIV_H","SNES IRQ vector (high)"),
-		new Reg(0x2220, "SA1_CXB",  "Super MMC bank for $C0-$CF"),
-		new Reg(0x2221, "SA1_DXB",  "Super MMC bank for $D0-$DF"),
-		new Reg(0x2222, "SA1_EXB",  "Super MMC bank for $E0-$EF"),
-		new Reg(0x2223, "SA1_FXB",  "Super MMC bank for $F0-$FF"),
-		new Reg(0x2224, "SA1_BMAPS","SA-1 BW-RAM bank for SNES"),
-		new Reg(0x2225, "SA1_BMAP", "SA-1 BW-RAM bank for SA-1"),
-		new Reg(0x2226, "SA1_SBWE", "SNES BW-RAM write enable"),
-		new Reg(0x2227, "SA1_CBWE", "SA-1 BW-RAM write enable"),
-		new Reg(0x2228, "SA1_BWPA", "BW-RAM write protection size"),
-		new Reg(0x2229, "SA1_SIWP", "SNES IWRAM write enable"),
-		new Reg(0x222A, "SA1_CIWP", "SA-1 IWRAM write enable"),
+		new Reg(0x2200, "SA1_CCNT",  "SA-1 control / SNES->SA-1 message"),
+		new Reg(0x2201, "SA1_SIE",   "SNES interrupt enable"),
+		new Reg(0x2202, "SA1_SIC",   "SNES interrupt clear"),
+		new Reg(0x2203, "SA1_CRV_L", "SA-1 CPU reset vector (low)"),
+		new Reg(0x2204, "SA1_CRV_H", "SA-1 CPU reset vector (high)"),
+		new Reg(0x2205, "SA1_CNV_L", "SA-1 CPU NMI vector (low)"),
+		new Reg(0x2206, "SA1_CNV_H", "SA-1 CPU NMI vector (high)"),
+		new Reg(0x2207, "SA1_CIV_L", "SA-1 CPU IRQ vector (low)"),
+		new Reg(0x2208, "SA1_CIV_H", "SA-1 CPU IRQ vector (high)"),
+		new Reg(0x2209, "SA1_SCNT",  "SA-1 status / SA-1->SNES message"),
+		new Reg(0x220A, "SA1_CIE",   "SA-1 interrupt enable"),
+		new Reg(0x220B, "SA1_CIC",   "SA-1 interrupt clear"),
+		new Reg(0x220C, "SA1_SNV_L", "SNES NMI vector (low)"),
+		new Reg(0x220D, "SA1_SNV_H", "SNES NMI vector (high)"),
+		new Reg(0x220E, "SA1_SIV_L", "SNES IRQ vector (low)"),
+		new Reg(0x220F, "SA1_SIV_H", "SNES IRQ vector (high)"),
+		// Timer registers
+		new Reg(0x2210, "SA1_HCNT_L","HDMA timer count (low)"),
+		new Reg(0x2211, "SA1_HCNT_H","HDMA timer count (high)"),
+		new Reg(0x2212, "SA1_MCNT_L","SA-1 timer count (low)"),
+		new Reg(0x2213, "SA1_MCNT_H","SA-1 timer count (high)"),
+		// Super MMC bank registers
+		new Reg(0x2220, "SA1_CXB",   "Super MMC bank for $C0-$CF"),
+		new Reg(0x2221, "SA1_DXB",   "Super MMC bank for $D0-$DF"),
+		new Reg(0x2222, "SA1_EXB",   "Super MMC bank for $E0-$EF"),
+		new Reg(0x2223, "SA1_FXB",   "Super MMC bank for $F0-$FF"),
+		new Reg(0x2224, "SA1_BMAPS", "SA-1 BW-RAM bank for SNES"),
+		new Reg(0x2225, "SA1_BMAP",  "SA-1 BW-RAM bank for SA-1"),
+		new Reg(0x2226, "SA1_SBWE",  "SNES BW-RAM write enable"),
+		new Reg(0x2227, "SA1_CBWE",  "SA-1 BW-RAM write enable"),
+		new Reg(0x2228, "SA1_BWPA",  "BW-RAM write protection size"),
+		new Reg(0x2229, "SA1_SIWP",  "SNES IWRAM write enable"),
+		new Reg(0x222A, "SA1_CIWP",  "SA-1 IWRAM write enable"),
+		// DMA / character conversion registers
+		new Reg(0x2230, "SA1_DMACR", "SA-1 DMA control"),
+		new Reg(0x2231, "SA1_DMACB_L","SA-1 DMA byte count (low)"),
+		new Reg(0x2232, "SA1_DMACB_H","SA-1 DMA byte count (high)"),
+		new Reg(0x2233, "SA1_DMADA_L","SA-1 DMA source address (low)"),
+		new Reg(0x2234, "SA1_DMADA_M","SA-1 DMA source address (mid)"),
+		new Reg(0x2235, "SA1_DMADA_H","SA-1 DMA source address (high)"),
+		new Reg(0x2236, "SA1_DMASA_L","SA-1 DMA dest address (low)"),
+		new Reg(0x2237, "SA1_DMASA_M","SA-1 DMA dest address (mid)"),
+		new Reg(0x2238, "SA1_DMASA_H","SA-1 DMA dest address (high)"),
+		new Reg(0x2239, "SA1_CHNEN_L","SA-1 character conversion param (low)"),
+		new Reg(0x223A, "SA1_CHNEN_H","SA-1 character conversion param (high)"),
+		new Reg(0x223B, "SA1_CHNCV_L","SA-1 character conversion value (low)"),
+		new Reg(0x223C, "SA1_CHNCV_M","SA-1 character conversion value (mid)"),
+		new Reg(0x223D, "SA1_CHNCV_H","SA-1 character conversion value (high)"),
+		// Bitmap register file
+		new Reg(0x2240, "SA1_BMAP0_L","SA-1 bitmap register 0 (low)"),
+		new Reg(0x2241, "SA1_BMAP0_H","SA-1 bitmap register 0 (high)"),
+		new Reg(0x2242, "SA1_BMAP1_L","SA-1 bitmap register 1 (low)"),
+		new Reg(0x2243, "SA1_BMAP1_H","SA-1 bitmap register 1 (high)"),
+		new Reg(0x2244, "SA1_BMAP2_L","SA-1 bitmap register 2 (low)"),
+		new Reg(0x2245, "SA1_BMAP2_H","SA-1 bitmap register 2 (high)"),
+		new Reg(0x2246, "SA1_BMAP3_L","SA-1 bitmap register 3 (low)"),
+		new Reg(0x2247, "SA1_BMAP3_H","SA-1 bitmap register 3 (high)"),
+		new Reg(0x2248, "SA1_BMAP4_L","SA-1 bitmap register 4 (low)"),
+		new Reg(0x2249, "SA1_BMAP4_H","SA-1 bitmap register 4 (high)"),
+		new Reg(0x224A, "SA1_BMAP5_L","SA-1 bitmap register 5 (low)"),
+		new Reg(0x224B, "SA1_BMAP5_H","SA-1 bitmap register 5 (high)"),
+		new Reg(0x224C, "SA1_BMAP6_L","SA-1 bitmap register 6 (low)"),
+		new Reg(0x224D, "SA1_BMAP6_H","SA-1 bitmap register 6 (high)"),
+		new Reg(0x224E, "SA1_BMAP7_L","SA-1 bitmap register 7 (low)"),
+		new Reg(0x224F, "SA1_BMAP7_H","SA-1 bitmap register 7 (high)"),
+		// Arithmetic registers
+		new Reg(0x2250, "SA1_MPB_L",  "SA-1 multiply / divide param B (low)"),
+		new Reg(0x2251, "SA1_MPB_H",  "SA-1 multiply / divide param B (high)"),
+		new Reg(0x2252, "SA1_MPB_B",  "SA-1 multiply / divide param B (bank)"),
+		new Reg(0x2253, "SA1_MRA_L",  "SA-1 multiply / divide param A (low) / result (low)"),
+		new Reg(0x2254, "SA1_MRA_H",  "SA-1 multiply / divide param A (high) / result (mid)"),
+		new Reg(0x2255, "SA1_MRA_B",  "SA-1 multiply / divide param A (bank) / result (high)"),
+		new Reg(0x2258, "SA1_VBP",    "SA-1 variable-length bit processing"),
+		new Reg(0x2259, "SA1_VBIT",   "SA-1 variable-length bit position"),
+		new Reg(0x225A, "SA1_VBUP_L", "SA-1 variable-length bit upper (low)"),
+		new Reg(0x225B, "SA1_VBUP_H", "SA-1 variable-length bit upper (high)"),
+		// Result / status registers
+		new Reg(0x2300, "SA1_DAP_L",  "SA-1 DMA parameter (low) [read]"),
+		new Reg(0x2301, "SA1_DAP_H",  "SA-1 DMA parameter (high) [read]"),
+		new Reg(0x2302, "SA1_DAP_B",  "SA-1 DMA parameter (bank) [read]"),
+		new Reg(0x2303, "SA1_DTC_L",  "SA-1 DMA byte count [read]"),
+		new Reg(0x2304, "SA1_DTC_H",  "SA-1 DMA byte count (high) [read]"),
+		new Reg(0x2305, "SA1_CCR_L",  "SA-1 character conversion result (low) [read]"),
+		new Reg(0x2306, "SA1_CCR_H",  "SA-1 character conversion result (high) [read]"),
+		new Reg(0x2307, "SA1_CCR_B",  "SA-1 character conversion result (bank) [read]"),
+		new Reg(0x2308, "SA1_MDR_L",  "SA-1 multiply / divide result (low) [read]"),
+		new Reg(0x2309, "SA1_MDR_M",  "SA-1 multiply / divide result (mid) [read]"),
+		new Reg(0x230A, "SA1_MDR_H",  "SA-1 multiply / divide result (high) [read]"),
+		new Reg(0x230B, "SA1_OMDR_L", "SA-1 old multiply / divide result (low) [read]"),
+		new Reg(0x230C, "SA1_OMDR_H", "SA-1 old multiply / divide result (high) [read]"),
+		new Reg(0x230D, "SA1_VBD_L",  "SA-1 variable-length bit data (low) [read]"),
+		new Reg(0x230E, "SA1_VBD_H",  "SA-1 variable-length bit data (high) [read]"),
 	};
 
 	/** SuperFX (GSU-1/2) coprocessor register window (subset; $00:3000..$00:32FF). */
@@ -314,13 +379,81 @@ public final class SnesHardware {
 		new Reg(0x4807, "SDD1_MMC3", "S-DD1 MMC bank for $F0-$FF"),
 	};
 
+	/** Cx4 (Hitachi SH-1 custom) register window ($00:7F40..$00:7FAF). */
+	private static final Reg[] CX4_REGISTERS = new Reg[] {
+		new Reg(0x7F40, "CX4_BUSY",   "Cx4 busy flag / status"),
+		new Reg(0x7F42, "CX4_CMD",    "Cx4 command (triggers processing)"),
+		new Reg(0x7F44, "CX4_PRM0_L", "Cx4 parameter 0 (low)"),
+		new Reg(0x7F45, "CX4_PRM0_H", "Cx4 parameter 0 (high)"),
+		new Reg(0x7F46, "CX4_PRM1_L", "Cx4 parameter 1 (low)"),
+		new Reg(0x7F47, "CX4_PRM1_H", "Cx4 parameter 1 (high)"),
+		new Reg(0x7F48, "CX4_PRM2_L", "Cx4 parameter 2 (low)"),
+		new Reg(0x7F49, "CX4_PRM2_H", "Cx4 parameter 2 (high)"),
+		new Reg(0x7F4A, "CX4_PRM3_L", "Cx4 parameter 3 (low)"),
+		new Reg(0x7F4B, "CX4_PRM3_H", "Cx4 parameter 3 (high)"),
+		new Reg(0x7F4C, "CX4_PRM4_L", "Cx4 parameter 4 (low)"),
+		new Reg(0x7F4D, "CX4_PRM4_H", "Cx4 parameter 4 (high)"),
+		new Reg(0x7F4E, "CX4_PRM5_L", "Cx4 parameter 5 (low)"),
+		new Reg(0x7F4F, "CX4_PRM5_H", "Cx4 parameter 5 (high)"),
+		new Reg(0x7F50, "CX4_PRM6_L", "Cx4 parameter 6 (low)"),
+		new Reg(0x7F51, "CX4_PRM6_H", "Cx4 parameter 6 (high)"),
+		new Reg(0x7F52, "CX4_PRM7_L", "Cx4 parameter 7 (low)"),
+		new Reg(0x7F53, "CX4_PRM7_H", "Cx4 parameter 7 (high)"),
+		new Reg(0x7F54, "CX4_RES0_L", "Cx4 result 0 (low)"),
+		new Reg(0x7F55, "CX4_RES0_H", "Cx4 result 0 (high)"),
+		new Reg(0x7F56, "CX4_RES1_L", "Cx4 result 1 (low)"),
+		new Reg(0x7F57, "CX4_RES1_H", "Cx4 result 1 (high)"),
+		new Reg(0x7F58, "CX4_RES2_L", "Cx4 result 2 (low)"),
+		new Reg(0x7F59, "CX4_RES2_H", "Cx4 result 2 (high)"),
+		new Reg(0x7F5A, "CX4_RES3_L", "Cx4 result 3 (low)"),
+		new Reg(0x7F5B, "CX4_RES3_H", "Cx4 result 3 (high)"),
+		new Reg(0x7F5C, "CX4_RES4_L", "Cx4 result 4 (low)"),
+		new Reg(0x7F5D, "CX4_RES4_H", "Cx4 result 4 (high)"),
+		new Reg(0x7F5E, "CX4_RES5_L", "Cx4 result 5 (low)"),
+		new Reg(0x7F5F, "CX4_RES5_H", "Cx4 result 5 (high)"),
+		new Reg(0x7F60, "CX4_RES6_L", "Cx4 result 6 (low)"),
+		new Reg(0x7F61, "CX4_RES6_H", "Cx4 result 6 (high)"),
+		new Reg(0x7F62, "CX4_RES7_L", "Cx4 result 7 (low)"),
+		new Reg(0x7F63, "CX4_RES7_H", "Cx4 result 7 (high)"),
+	};
+
+	/** S-RTC register window ($00:2800..$00:2801). */
+	private static final Reg[] SRTC_REGISTERS = new Reg[] {
+		new Reg(0x2800, "SRTC_CMD",  "S-RTC command / status"),
+		new Reg(0x2801, "SRTC_DATA", "S-RTC data port"),
+	};
+
+	/** OBC-1 register window ($00:7FF0..$00:7FF7). */
+	private static final Reg[] OBC1_REGISTERS = new Reg[] {
+		new Reg(0x7FF0, "OBC1_CTRL", "OBC-1 control"),
+		new Reg(0x7FF1, "OBC1_DATA", "OBC-1 data"),
+	};
+
+	/** SPC7110 extended registers ($00:4810..$00:483F). MMC at $4800-$4807. */
+	private static final Reg[] SPC7110_REGISTERS = new Reg[] {
+		new Reg(0x4810, "SPC7110_DATA",   "SPC7110 data port"),
+		new Reg(0x4811, "SPC7110_ADDR0",  "SPC7110 address (low)"),
+		new Reg(0x4812, "SPC7110_ADDR1",  "SPC7110 address (mid)"),
+		new Reg(0x4813, "SPC7110_ADDR2",  "SPC7110 address (high)"),
+		new Reg(0x4814, "SPC7110_CTRL",   "SPC7110 control / status"),
+	};
+
+	/** ST018 register window ($00:3800..$00:3804). */
+	private static final Reg[] ST018_REGISTERS = new Reg[] {
+		new Reg(0x3800, "ST018_CMD0",  "ST018 command 0"),
+		new Reg(0x3801, "ST018_CMD1",  "ST018 command 1"),
+		new Reg(0x3802, "ST018_CMD2",  "ST018 command 2"),
+		new Reg(0x3803, "ST018_CMD3",  "ST018 command 3"),
+		new Reg(0x3804, "ST018_STATUS","ST018 status"),
+	};
+
 	/**
 	 * Apply optional coprocessor-specific labels for chips advertised in the
 	 * cartridge header. Safe to call on any ROM; chips that aren't present
 	 * just produce no extra labels.
 	 */
 	public static void applyCoprocessorLabels(FlatProgramAPI fpa, SnesHeader.Coprocessor cp,
-			MessageLog log) {
+		MessageLog log) {
 		if (cp == null || !cp.isPresent()) return;
 		switch (cp) {
 			case SA1:
@@ -331,6 +464,18 @@ public final class SnesHardware {
 				break;
 			case SDD1:
 				for (Reg r : SDD1_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case CUSTOM_CX4:
+				for (Reg r : CX4_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case SRTC:
+				for (Reg r : SRTC_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case CUSTOM_SPC7110:
+				for (Reg r : SPC7110_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
+				break;
+			case CUSTOM_ST018:
+				for (Reg r : ST018_REGISTERS) labelByte(fpa, r.addr, r.name, r.comment, log);
 				break;
 			default:
 				break;
