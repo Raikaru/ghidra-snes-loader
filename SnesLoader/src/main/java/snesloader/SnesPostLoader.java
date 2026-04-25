@@ -36,7 +36,7 @@ public final class SnesPostLoader {
 	public static final long LOWRAM_BUS_START = 0x00_0000L;
 	public static final long LOWRAM_LEN = 0x2000L;        // $00:0000-$00:1FFF
 	public static final long HW_REGS_BUS_START = 0x00_2000L;
-	public static final long HW_REGS_LEN = 0x2400L;       // $00:2000-$00:43FF (covers MSU-1 + expansion)
+	public static final long HW_REGS_LEN = 0x3000L;       // $00:2000-$00:4FFF (covers MSU-1, SA-1, GSU, S-DD1, CX4, expansion)
 	/**
 	 * Banks where the LowRAM mirror and the hardware-register window are
 	 * visible to the 65816. The SNES bus mirrors WRAM low-bank ($7E:0000-$1FFF)
@@ -56,8 +56,17 @@ public final class SnesPostLoader {
 	public static final long NATIVE_VECTORS_ADDR = 0x00_FFE4L;
 	public static final long EMU_VECTORS_ADDR = 0x00_FFF4L;
 	public static final long CART_HEADER_ADDR_LOROM = 0x00_FFC0L;
-	public static final long CART_HEADER_ADDR_HIROM = 0x00_FFC0L;
 
+	/** GSU (SuperFX) RAM is 64 KiB at $70:0000-$7F:FFFF. This is separate from SNES WRAM. */
+	public static final long GSU_RAM_START = 0x70_0000L;
+	public static final long GSU_RAM_LEN = 0x10_0000L;    // 64 KiB
+	public static final long GSU_VECTORS_ADDR = 0x70_0000L;
+
+	/** SA-1 BW-RAM is 256 KiB. It's mapped at $40-$4F:0000-FFFF (16 banks × 64 KiB) and also
+	 * at $00-$3F/$80-$BF:6000-7FFF for low-memory access. */
+	public static final long SA1_BWRAM_START = 0x40_0000L;
+	public static final long SA1_BWRAM_LEN = 0x4_0000L;    // 256 KiB
+	public static final long SA1_BWRAM_LOW_START = 0x00_6000L;  // Low-memory window at $00:6000-$7FFF
 	public static final class Options {
 		public boolean mapHwRegs = true;
 		public boolean markVectors = true;
@@ -98,7 +107,17 @@ public final class SnesPostLoader {
 		if (opts.mapSram && romInfo.getHeader() != null && romInfo.getHeader().getSramBytes() > 0) {
 			mapSram(program, bus, romInfo, log);
 		}
+		// 3b) GSU (SuperFX) RAM and vectors (when the header indicates GSU is present).
+		if (romInfo.getHeader() != null && romInfo.getHeader().getCoprocessor() == SnesHeader.Coprocessor.GSU) {
+			mapGsuRam(program, bus, log);
+			labelGsuVectors(fpa, log);
+		}
 
+		// 3c) SA-1 BW-RAM and vectors (when the header indicates SA-1 is present).
+		if (romInfo.getHeader() != null && romInfo.getHeader().getCoprocessor() == SnesHeader.Coprocessor.SA1) {
+			mapSa1BwRam(program, bus, log);
+			labelSa1Vectors(fpa, log);
+		}
 		// 4) Cartridge header struct.
 		if (opts.applyHeaderDataType && romInfo.getHeader() != null) {
 			applyCartridgeHeaderType(program, bus, log);
@@ -165,7 +184,7 @@ public final class SnesPostLoader {
 		// mirror is visible.
 		Address start = bus.getAddress(HW_REGS_BUS_START);
 		MemoryBlockUtils.createUninitializedBlock(program, false, "hwregs", start, HW_REGS_LEN,
-				"PPU/APU/CPU/DMA registers ($00:2000-$00:43FF)", "", true, true, false, log);
+				"PPU/APU/CPU/DMA registers + coprocessor I/O ($00:2000-$00:4FFF)", "", true, true, false, log);
 		// Mirror the hardware-register window into every bank where the SNES
 		// bus exposes it. This stops {@code STA $2100} from a function whose
 		// PHK/PLB pinned DBR to a non-zero bank from looking like an
@@ -179,7 +198,7 @@ public final class SnesPostLoader {
 				MemoryBlockUtils.createByteMappedBlock(program,
 					String.format("hwregs_mirror_%02X", bank),
 					mirror, start, (int) HW_REGS_LEN,
-					String.format("Hardware-register mirror at $%02X:2000-$%02X:43FF",
+					String.format("Hardware-register mirror at $%02X:2000-$%02X:4FFF",
 						bank, bank),
 					"", true, true, false, false, log);
 			}
@@ -266,6 +285,73 @@ public final class SnesPostLoader {
 			}
 		}
 		catch (InvalidInputException e) {
+			log.appendException(e);
+		}
+	}
+
+	/**
+	 * Map GSU (SuperFX) RAM. The GSU has its own 64 KiB RAM at $70:0000-$7F:FFFF.
+	 * This is separate from SNES WRAM and is accessed via the GSU_RAMBR register.
+	 * The GSU vector table is at $70:0000-$70:00FF.
+	 */
+	private static void mapGsuRam(Program program, AddressSpace bus, MessageLog log) {
+		Address start = bus.getAddress(GSU_RAM_START);
+		MemoryBlockUtils.createUninitializedBlock(program, false, "gsu_ram", start, GSU_RAM_LEN,
+				"GSU (SuperFX) RAM ($70:0000-$7F:FFFF, 64 KiB)", "", true, true, false, log);
+	}
+
+	/**
+	 * Label GSU vector table at $70:0000-$70:00FF.
+	 */
+	private static void labelGsuVectors(FlatProgramAPI fpa, MessageLog log) {
+		AddressSpace bus = fpa.getCurrentProgram().getAddressFactory().getDefaultAddressSpace();
+		SymbolTable st = fpa.getCurrentProgram().getSymbolTable();
+		Address base = bus.getAddress(GSU_VECTORS_ADDR);
+		try {
+			st.createLabel(base, "gsu_vectors", SourceType.IMPORTED);
+			fpa.setEOLComment(base, "GSU (SuperFX) vector table at $70:0000-$70:00FF");
+		} catch (InvalidInputException e) {
+			log.appendException(e);
+		}
+	}
+
+	/**
+	 * Map SA-1 BW-RAM. SA-1 cartridges expose 256 KiB of BW-RAM at multiple bus locations.
+	 * The RAM is mapped at $40-$4F:0000-FFFF (16 banks × 64 KiB) and also at $00-$3F/$80-$BF:6000-7FFF.
+	 */
+	private static void mapSa1BwRam(Program program, AddressSpace bus, MessageLog log) {
+		// Primary BW-RAM block at $40:0000-$43:FFFF (first 256 KiB)
+		Address start = bus.getAddress(SA1_BWRAM_START);
+		MemoryBlockUtils.createUninitializedBlock(program, false, "sa1_bwram", start, SA1_BWRAM_LEN,
+				"SA-1 BW-RAM ($40:0000-$43:FFFF, 256 KiB)", "", true, true, false, log);
+		
+		// Mirror BW-RAM into banks $44-$4F (remaining banks of the 1 MiB window)
+		for (int bank = 0x44; bank <= 0x4F; bank++) {
+			Address mirror = bus.getAddress(((long) bank) << 16);
+			MemoryBlockUtils.createByteMappedBlock(program,
+				String.format("sa1_bwram_mirror_%02X", bank),
+				mirror, start, (int) SA1_BWRAM_LEN,
+				String.format("SA-1 BW-RAM mirror at $%02X:0000-$%02X:FFFF", bank, bank),
+				"", true, true, false, false, log);
+		}
+		
+		// Low-memory BW-RAM window at $00:6000-$7FFF and mirrors in other banks
+		Address lowStart = bus.getAddress(SA1_BWRAM_LOW_START);
+		MemoryBlockUtils.createByteMappedBlock(program, "sa1_bwram_low", lowStart, start,
+				0x2000, "SA-1 BW-RAM low window at $00:6000-$7FFF", "", true, true, false, false, log);
+	}
+
+	/**
+	 * Label SA-1 BW-RAM vector table at $00:6000-$7FFF.
+	 */
+	private static void labelSa1Vectors(FlatProgramAPI fpa, MessageLog log) {
+		AddressSpace bus = fpa.getCurrentProgram().getAddressFactory().getDefaultAddressSpace();
+		SymbolTable st = fpa.getCurrentProgram().getSymbolTable();
+		Address base = bus.getAddress(SA1_BWRAM_LOW_START);
+		try {
+			st.createLabel(base, "sa1_vectors", SourceType.IMPORTED);
+			fpa.setEOLComment(base, "SA-1 vector table at $00:6000-$7FFF");
+		} catch (InvalidInputException e) {
 			log.appendException(e);
 		}
 	}
