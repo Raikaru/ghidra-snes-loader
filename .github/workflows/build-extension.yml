@@ -13,6 +13,13 @@ on:
   release:
     types: [published]
 
+# softprops/action-gh-release needs write access to the repo's
+# contents to upload an asset to an existing release. The default
+# GITHUB_TOKEN is read-only for release-triggered runs unless we
+# opt in here.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
