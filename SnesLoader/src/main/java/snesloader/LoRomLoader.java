@@ -41,7 +41,25 @@ public class LoRomLoader {
 		AddressSpace bus = prog.getAddressFactory().getDefaultAddressSpace();
 
 		RomReader reader = new RomReader(romInfo, provider);
+		boolean truncationWarned = false;
 		for (RomChunk chunk : reader) {
+			// LoROM chunk indices past the 4 MiB ceiling cannot be expressed
+			// in the 24-bit SNES bus and must be skipped. This shows up on
+			// SPC7110 cartridges (Star Ocean, Far East of Eden Zero) when
+			// the auto-detection coincidentally picks LoROM over the real
+			// HiROM/SPC7110 mapping. Without this guard busAddressesFor
+			// throws AddressOutOfBoundsException with offset 0x1008000.
+			if (chunk.getRomStart() >= MAX_ROM_SIZE) {
+				if (!truncationWarned) {
+					log.appendMsg(SnesLoader.LOADER_NAME, String.format(
+						"ROM is %d KiB, larger than the LoROM 4 MiB ceiling. " +
+						"Mapping the first 4 MiB only; the remaining bytes are " +
+						"reachable via the file's flat byte view but not the " +
+						"24-bit bus.", provider.length() / 1024));
+					truncationWarned = true;
+				}
+				continue;
+			}
 			List<Address> mirrors = busAddressesFor(chunk, bus);
 			Address primary = mirrors.remove(0);
 			String primaryName = chunkPrimaryName(chunk);

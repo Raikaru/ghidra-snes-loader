@@ -104,7 +104,7 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 		if (detected.isEmpty()) {
 			throw new IOException("Not a valid SNES ROM (file changed since import?)");
 		}
-		RomInfo romInfo = pickBestMatch(detected);
+		RomInfo romInfo = pickBestMatch(detected, provider.length());
 		if (romInfo == null) {
 			StringBuilder sb = new StringBuilder("Cannot uniquely identify SNES ROM. Candidates:\n");
 			for (RomInfo r : detected) {
@@ -187,15 +187,44 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 		return null;
 	}
 
-	private static RomInfo pickBestMatch(Collection<RomInfo> candidates) {
+	/**
+	 * Score and pick the most plausible interpretation of a multi-candidate
+	 * ROM. Both LoROM-at-$7FC0 and HiROM-at-$FFC0 can pass {@link
+	 * RomInfo#bytesLookValid(ByteProvider)} on the same file by sheer
+	 * coincidence: the heuristic only requires a checksum-complement pair
+	 * plus a handful of plausible header bytes, and large cartridges have
+	 * enough random data to satisfy that around either offset.
+	 *
+	 * <p>We resolve the tie with the following preferences, applied as a
+	 * single additive score:
+	 * <ul>
+	 *   <li>Strongly prefer no-SMC over SMC-stripped (real cartridge dumps
+	 *       almost always lack the 512-byte copier header today).</li>
+	 *   <li>Strongly de-prefer LoROM when the file is larger than the
+	 *       LoROM 4 MiB ceiling -- a 6 MiB "LoROM" detection is almost
+	 *       always a $7FC0 coincidence on an SPC7110 / ExHiROM cartridge,
+	 *       and picking it would silently truncate the upper 2 MiB of
+	 *       game code.</li>
+	 *   <li>As a final tie-break, prefer LoROM (the more common case for
+	 *       small cartridges).</li>
+	 * </ul></p>
+	 */
+	private static RomInfo pickBestMatch(Collection<RomInfo> candidates, long providerLen) {
 		if (candidates.size() == 1) {
 			return candidates.iterator().next();
 		}
-		// Prefer no-SMC over SMC, and LoROM over HiROM as a tiebreaker.
 		RomInfo best = null;
 		int bestRank = Integer.MIN_VALUE;
 		for (RomInfo r : candidates) {
-			int rank = (r.hasSmcHeader() ? 0 : 10) + (r.getKind() == RomKind.HI_ROM ? 0 : 1);
+			int rank = 0;
+			rank += r.hasSmcHeader() ? 0 : 100;
+			long romBytes = providerLen - r.getStartOffset();
+			if (r.getKind() == RomKind.LO_ROM && romBytes > LoRomLoader.MAX_ROM_SIZE) {
+				rank -= 50;
+			}
+			if (r.getKind() == RomKind.LO_ROM) {
+				rank += 1;
+			}
 			if (rank > bestRank) {
 				bestRank = rank;
 				best = r;

@@ -4,6 +4,88 @@ All notable changes to this loader extension are documented here. The
 versioning follows [SemVer](https://semver.org/) for the extension's
 `extension.properties`.
 
+## [1.2.1] — 2026-04-25
+
+Cartridge-corpus pass: every fix in this release is the direct result
+of running the loader against an 11-cartridge real-ROM corpus
+(EarthBound, Final Fantasy III, Mega Man X2, Star Fox, Star Ocean,
+Super Mario Kart, Super Mario RPG, Super Mario World, Super Mario
+World 2 — Yoshi's Island, Tales of Phantasia, The Legend of Zelda: A
+Link to the Past) inside the GhidraMCP Docker container via the
+`tests/real-rom-smoke.ps1` runner.
+
+### Fixed
+
+- **SA-1 cartridges now load.** The `SnesHeader.looksValid()` heuristic
+  rejected map-mode `$23` / `$33` (the SA-1-specific LoROM variant)
+  because the low-nibble allow-list was missing `3`. As a result every
+  SA-1 cartridge -- Super Mario RPG, Kirby Super Star, Kirby's Dream
+  Land 3, Mario's Super Picross, Marvelous, ... -- failed import with
+  *"No load spec found"*. Added `$23/$33` to `looksValid()`,
+  `isLoRomMode()`, and a new `isSa1Mode()` predicate so the loader
+  recognises and labels them. Verified end-to-end on Super Mario RPG
+  (4 MiB SA-1).
+- **SPC7110 cartridges no longer crash the loader.** Map-mode `$3A`
+  (HiROM-SPC7110) was likewise rejected by `looksValid()`. Worse, when
+  the LoROM-offset header at `$7FC0` happened to checksum-complement
+  by coincidence (Star Ocean and Far East of Eden Zero both do), the
+  loader picked LoROM and then threw
+  `AddressOutOfBoundsException: Offset must be between 0x0 and 0xffffff,
+  got 0x1008000 instead!` from `LoRomLoader.busAddressesFor()` because
+  the file is 6 MiB but LoROM's bus only addresses the first 4 MiB.
+  Added `$3A` to `looksValid()`/`isHiRomMode()`/`isSpc7110Mode()`, and
+  capped `LoRomLoader` and `HiRomLoader` at their 4 MiB ceiling with
+  a one-shot `MessageLog` warning. Verified on Star Ocean (6 MiB).
+- **Cart-type → coprocessor mapping was off by one.** The original
+  achan1989 decoder treated high-nibble `0` as "no chip" and shifted
+  every other family down by one, so every SuperFX cartridge (Star
+  Fox, Yoshi's Island, Doom, Vortex, ...) was reported as a DSP-1
+  cart, every OBC-1 cart was reported as GSU, and so on. Re-aligned
+  the high-nibble switch to the SNESdev-wiki canonical layout
+  (`0=DSP, 1=GSU, 2=OBC1, 3=SA1, 4=SDD1, 5=SRTC, F=Custom`). Now Star
+  Fox, Yoshi's Island, and Mega Man X2 (Cx4) all classify correctly.
+- **Tie-break between coincidental LoROM and real HiROM.** When both
+  candidates pass validation, `pickBestMatch` previously preferred
+  LoROM unconditionally as a stylistic choice. That silently truncated
+  any 6 MiB SPC7110/ExHiROM cartridge that happened to also pass
+  LoROM-at-`$7FC0`. The picker now penalises LoROM by 50 points when
+  the file exceeds the LoROM 4 MiB ceiling, so HiROM/ExHiROM wins on
+  oversized cartridges.
+
+### Added
+
+- `tests/real-rom-smoke.ps1` -- a Windows/PowerShell runner that drives
+  the GhidraMCP Docker container against a host-side directory of SNES
+  ROMs, dumps a per-cartridge `MARK:` snapshot via `tests/PrintRealRomSnapshot.java`,
+  and prints a side-by-side summary table (kind, coprocessor, function
+  count, hardware-register symbol count, DBR/DP analyser coverage). The
+  runner sanitises filenames before docker-cp'ing them in, so the usual
+  cartridge-dump filenames with parens / spaces work without quoting
+  gymnastics. Output goes under `.local-test/` (gitignored); no ROM
+  blobs leave the user's machine.
+- `tests/PrintRealRomSnapshot.java` -- a richer headless post-script
+  than `PrintSnesArtifacts.java`. In addition to the structural
+  markers, it counts hardware-register symbols, distinct
+  DBR-overridden instruction sites, distinct DP-overridden instruction
+  sites, and dumps the first four instructions of the reset routine.
+  This is what the smoke runner uses; it is not invoked by the GitHub
+  Actions CI workflow.
+
+### Verified end-to-end on the corpus
+
+11 / 11 cartridges import without error and produce a usable Ghidra
+program. Highlights:
+
+- Final Fantasy III (FF6 USA, 3 MiB HiROM): 534 functions, 29 190
+  instruction sites with the DBR/DP analyser propagating a non-default
+  bank or direct page (the analyser is doing real work on this one).
+- Star Fox (1 MiB LoROM, GSU): 248 functions, 494 DBR overrides, 221
+  hardware-register labels (the extra 13 are the GSU register window
+  at `$00:3030-$00:303F`).
+- Super Mario RPG (4 MiB SA-1) and Star Ocean (6 MiB SPC7110) both go
+  from "No load spec found" / `AddressOutOfBoundsException` in 1.2.0
+  to importing cleanly.
+
 ## [1.2.0] — 2026-04-25
 
 ### Added

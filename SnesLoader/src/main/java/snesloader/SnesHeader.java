@@ -106,12 +106,27 @@ public final class SnesHeader {
 	 * Heuristic: do these bytes plausibly form a SNES header? We require a sane
 	 * map mode, a checksum that complements correctly and a reset vector that
 	 * lives in the bank-bus ROM range ($8000+).
+	 *
+	 * <p>Recognised low-nibble values:
+	 * <ul>
+	 *   <li>0 = LoROM ($20/$30)</li>
+	 *   <li>1 = HiROM ($21/$31)</li>
+	 *   <li>2 = LoROM SDD-1 / extended LoROM ($22/$32)</li>
+	 *   <li>3 = LoROM SA-1 ($23/$33) -- previously dropped, which made every
+	 *       SA-1 cartridge (Super Mario RPG, Kirby Super Star, Kirby's Dream
+	 *       Land 3, Mario's Super Picross, ...) fall through to "No load
+	 *       spec found".</li>
+	 *   <li>5 = HiROM ExHiROM ($25/$35)</li>
+	 *   <li>A = HiROM SPC7110 ($3A) -- ditto for Star Ocean and Far East of
+	 *       Eden Zero.</li>
+	 * </ul></p>
 	 */
 	public boolean looksValid() {
 		int mapHi = (mapMode >> 4) & 0x0F;
 		int mapLo = mapMode & 0x0F;
 		boolean validMap = (mapHi == 2 || mapHi == 3) // 2x = LoROM-ish, 3x = FastROM
-				&& (mapLo == 0 || mapLo == 1 || mapLo == 2 || mapLo == 5);
+				&& (mapLo == 0 || mapLo == 1 || mapLo == 2 || mapLo == 3
+					|| mapLo == 5 || mapLo == 0xA);
 		boolean validCk = ((checksum + complement) & 0xFFFF) == 0xFFFF;
 		int reset = getResetVector();
 		boolean validReset = Integer.compareUnsigned(reset, 0x8000) >= 0;
@@ -162,7 +177,8 @@ public final class SnesHeader {
 
 	public boolean isHiRomMode() {
 		int lo = mapMode & 0x0F;
-		return lo == 1 || lo == 5; // 0x21/0x31 HiROM, 0x25/0x35 ExHiROM
+		// 0x21/0x31 HiROM, 0x25/0x35 ExHiROM, 0x3A SPC7110.
+		return lo == 1 || lo == 5 || lo == 0xA;
 	}
 
 	public boolean isExHiRomMode() {
@@ -172,7 +188,18 @@ public final class SnesHeader {
 
 	public boolean isLoRomMode() {
 		int lo = mapMode & 0x0F;
-		return lo == 0 || lo == 2; // 0x20/0x30 LoROM, 0x22/0x32 LoROM SA-1, etc.
+		// 0x20/0x30 LoROM, 0x22/0x32 LoROM SDD-1, 0x23/0x33 LoROM SA-1.
+		return lo == 0 || lo == 2 || lo == 3;
+	}
+
+	/** True if this map-mode is the SPC7110-specific HiROM variant. */
+	public boolean isSpc7110Mode() {
+		return (mapMode & 0x0F) == 0xA;
+	}
+
+	/** True if this map-mode is the SA-1-specific LoROM variant. */
+	public boolean isSa1Mode() {
+		return (mapMode & 0x0F) == 0x3;
 	}
 
 	/**
@@ -207,38 +234,51 @@ public final class SnesHeader {
 	/**
 	 * Decode the cartridge-type byte at $FFD6 into a {@link Coprocessor} value.
 	 * Returns {@link Coprocessor#NONE} for plain ROM/RAM/SRAM cartridges.
+	 *
+	 * <p>The cart-type byte is laid out as ``hi:lo``. The low nibble names
+	 * the components (ROM, ROM+RAM, ROM+RAM+battery, ROM+chip, ...). The
+	 * high nibble names the coprocessor family <i>but only when the low
+	 * nibble indicates that a chip is present (lo &gt;= 3)</i>.</p>
+	 *
+	 * <p>The high-nibble decoding here matches the SNESdev wiki's "ROM
+	 * header" page: 0 = DSP, 1 = GSU/SuperFX, 2 = OBC1, 3 = SA-1, 4 = S-DD1,
+	 * 5 = S-RTC, $E = Other (SGB-1), $F = Custom (sub-decoded by full byte).
+	 * The original achan1989 loader was off by one here, which made every
+	 * SuperFX cartridge (Star Fox, Yoshi's Island, Doom, Vortex, ...) look
+	 * like a DSP-1 cart.</p>
+	 *
+	 * <p>References: <a href="https://snes.nesdev.org/wiki/ROM_header">
+	 * SNESdev wiki -- ROM header</a>.</p>
 	 */
 	public Coprocessor getCoprocessor() {
-		// Low nibble = component composition (ROM/ROM+RAM/ROM+RAM+battery/...).
-		// High nibble = coprocessor family (00 = none).
 		int hi = (cartridgeType >> 4) & 0x0F;
 		int lo = cartridgeType & 0x0F;
-		// Plain ROM, ROM+RAM, ROM+RAM+SRAM all have hi=0 and no chip.
-		if (hi == 0) return Coprocessor.NONE;
+		// lo 0..2 are plain ROM / ROM+RAM / ROM+RAM+battery -- no chip.
+		// lo 3..6 indicate "ROM + chip"; the high nibble then names the chip.
+		if (lo < 3) return Coprocessor.NONE;
 		switch (hi) {
-			case 0x0: return Coprocessor.NONE;
-			case 0x1: return Coprocessor.DSP1;
-			case 0x2: return Coprocessor.GSU;
-			case 0x3: return Coprocessor.OBC1;
-			case 0x4: return Coprocessor.SA1;
-			case 0x5: return Coprocessor.SDD1;
-			case 0x6: return Coprocessor.SRTC;
+			case 0x0: return Coprocessor.DSP1;
+			case 0x1: return Coprocessor.GSU;
+			case 0x2: return Coprocessor.OBC1;
+			case 0x3: return Coprocessor.SA1;
+			case 0x4: return Coprocessor.SDD1;
+			case 0x5: return Coprocessor.SRTC;
 			case 0xE: return Coprocessor.OTHER;
 			case 0xF:
 				// 0xF? is "Custom"; the chip is then implied by the developer ID
 				// at +0x1A and the ROM size mostly. For the loader we just lump
-				// these under "Custom" so a downstream analyser can decide.
+				// these under the relevant "Custom" enum member so the post-loader
+				// can lay down the right register window.
 				switch (cartridgeType & 0xFF) {
+					case 0xF3: return Coprocessor.CUSTOM_CX4;
 					case 0xF5: return Coprocessor.CUSTOM_SPC7110;
 					case 0xF9: return Coprocessor.CUSTOM_SPC7110;
 					case 0xF6: return Coprocessor.CUSTOM_ST010_011;
 					case 0xF8: return Coprocessor.CUSTOM_ST018;
-					case 0xF3: return Coprocessor.CUSTOM_CX4;
 					default:   return Coprocessor.CUSTOM_UNKNOWN;
 				}
 			default:    return Coprocessor.CUSTOM_UNKNOWN;
 		}
-		// (lo intentionally unused for now; keep it parsed for description).
 	}
 
 	public boolean isSa1() { return getCoprocessor() == Coprocessor.SA1; }
@@ -270,6 +310,8 @@ public final class SnesHeader {
 	public String describeMapMode() {
 		StringBuilder sb = new StringBuilder();
 		if (isExHiRomMode()) sb.append("ExHiROM");
+		else if (isSpc7110Mode()) sb.append("HiROM/SPC7110");
+		else if (isSa1Mode()) sb.append("LoROM/SA-1");
 		else if (isLoRomMode()) sb.append("LoROM");
 		else if (isHiRomMode()) sb.append("HiROM");
 		else sb.append("Unknown");

@@ -49,8 +49,27 @@ public class HiRomLoader {
 		AddressSpace bus = prog.getAddressFactory().getDefaultAddressSpace();
 
 		int idx = 0;
+		boolean truncationWarned = false;
 		RomReader reader = new RomReader(romInfo, provider);
 		for (RomChunk chunk : reader) {
+			// HiROM bank cap: bank $C0 + 0x40 = $100, which wraps to bank
+			// $00 and would clobber the lower-half ROM mirrors and stomp
+			// LowRAM/hwregs. Truncate cleanly with a one-shot warning.
+			// (ExHiROM-aware mapping for the upper 4 MiB at banks $40-$7D
+			// would let us go further; that's a future enhancement, see
+			// CHANGELOG note for v1.2.1.)
+			if (idx >= 0x40) {
+				if (!truncationWarned) {
+					log.appendMsg(SnesLoader.LOADER_NAME, String.format(
+						"ROM is %d KiB, larger than the HiROM 4 MiB ceiling. " +
+						"Mapping the first 4 MiB only; the remaining bytes " +
+						"are reachable via the file's flat byte view but not " +
+						"the 24-bit bus.", provider.length() / 1024));
+					truncationWarned = true;
+				}
+				idx++;
+				continue;
+			}
 			Address primary = bus.getAddress(((0xC0L + idx) & 0xFF) << 16);
 			String primaryName = String.format("rom_%02X_0000-%02X_FFFF (HiROM bank %02X)",
 					(int) ((primary.getOffset() >> 16) & 0xFF),
