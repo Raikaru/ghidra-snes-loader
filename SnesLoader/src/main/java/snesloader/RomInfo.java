@@ -59,14 +59,14 @@ public class RomInfo {
 			}
 			// Try the standard header offset first.
 			SnesHeader h = tryHeaderAt(provider, getSnesHeaderOffset());
-			// For HiROM, also try the ExHiROM upper-ROM header location
-			// ($40:FFC0, ROM offset 0x40FFC0) when the standard offset fails.
-			// Some ExHiROM cartridges (>4 MiB) place their header in the upper
-			// ROM banks rather than at the standard $C0:FFC0.
-			if (h == null && kind == RomKind.HI_ROM && romLen > kind.getMaxRomSize()) {
-				long exHiromOffset = getStartOffset() + kind.getMaxRomSize() + 0xFFC0L;
-				if (exHiromOffset + 48 <= provider.length()) {
-					h = tryHeaderAt(provider, exHiromOffset);
+			// For ROMs >4 MiB, also try the upper-ROM header location
+			// (maxRomSize + 0xFFC0 = 0x40FFC0) when the standard offset fails.
+			// ExHiROM and observed ExLoROM cartridges (>4 MiB) may place their header
+			// in the upper ROM banks rather than at the standard position.
+			if (h == null && romLen > kind.getMaxRomSize()) {
+				long upperOffset = getStartOffset() + kind.getMaxRomSize() + 0xFFC0L;
+				if (upperOffset + 48 <= provider.length()) {
+					h = tryHeaderAt(provider, upperOffset);
 				}
 			}
 			if (h == null) return false;

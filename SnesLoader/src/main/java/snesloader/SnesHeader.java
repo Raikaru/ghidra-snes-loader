@@ -177,19 +177,22 @@ public final class SnesHeader {
 
 	public boolean isHiRomMode() {
 		int lo = mapMode & 0x0F;
-		// 0x21/0x31 HiROM, 0x25/0x35 ExHiROM, 0x3A SPC7110.
+		// 0x21/0x31 HiROM, 0x25/0x35 ExHiROM/ExLoROM, 0x3A SPC7110.
 		return lo == 1 || lo == 5 || lo == 0xA;
+	}
+	public boolean isExLoRomMode() {
+		return (mapMode & 0x0F) == 5;
 	}
 
 	public boolean isExHiRomMode() {
-		// 0x25 / 0x35 ExHiROM (8 MB+ HiROM-style mapping with banks shifted up).
-		return (mapMode == 0x25) || (mapMode == 0x35);
+		// nibble 5 is ExLoROM when loaded by LoRomLoader, ExHiROM when loaded by HiRomLoader.
+		return (mapMode & 0x0F) == 5;
 	}
 
 	public boolean isLoRomMode() {
 		int lo = mapMode & 0x0F;
-		// 0x20/0x30 LoROM, 0x22/0x32 LoROM SDD-1, 0x23/0x33 LoROM SA-1.
-		return lo == 0 || lo == 2 || lo == 3;
+		// 0x20/0x30 LoROM, 0x22/0x32 LoROM SDD-1, 0x23/0x33 LoROM SA-1, 0x25/0x35 ExLoROM.
+		return lo == 0 || lo == 2 || lo == 3 || lo == 5;
 	}
 
 	/** True if this map-mode is the SPC7110-specific HiROM variant. */
@@ -335,7 +338,7 @@ public final class SnesHeader {
 
 	public String describeMapMode() {
 		StringBuilder sb = new StringBuilder();
-		if (isExHiRomMode()) sb.append("ExHiROM");
+		if (isExLoRomMode()) sb.append("ExLoROM/ExHiROM");
 		else if (isSpc7110Mode()) sb.append("HiROM/SPC7110");
 		else if (isSa1Mode()) sb.append("LoROM/SA-1");
 		else if (isLoRomMode()) sb.append("LoROM");

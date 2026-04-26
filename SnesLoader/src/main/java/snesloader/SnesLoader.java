@@ -104,7 +104,7 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 		if (detected.isEmpty()) {
 			throw new IOException("Not a valid SNES ROM (file changed since import?)");
 		}
-		RomInfo romInfo = pickBestMatch(detected, provider.length());
+		RomInfo romInfo = pickBestMatch(detected, provider.length(), provider);
 		if (romInfo == null) {
 			StringBuilder sb = new StringBuilder("Cannot uniquely identify SNES ROM. Candidates:\n");
 			for (RomInfo r : detected) {
@@ -209,7 +209,8 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 	 *       small cartridges).</li>
 	 * </ul></p>
 	 */
-	private static RomInfo pickBestMatch(Collection<RomInfo> candidates, long providerLen) {
+	private static RomInfo pickBestMatch(Collection<RomInfo> candidates, long providerLen,
+			ByteProvider provider) {
 		if (candidates.size() == 1) {
 			return candidates.iterator().next();
 		}
@@ -219,11 +220,49 @@ public class SnesLoader extends AbstractLibrarySupportLoader {
 			int rank = 0;
 			rank += r.hasSmcHeader() ? 0 : 100;
 			long romBytes = providerLen - r.getStartOffset();
+			SnesHeader h = r.getHeader();
+			boolean isExLoRom = h != null && h.isExLoRomMode();
 			if (r.getKind() == RomKind.LO_ROM && romBytes > LoRomLoader.MAX_ROM_SIZE) {
-				rank -= 50;
+				if (!isExLoRom) {
+					rank -= 50;
+				}
 			}
-			if (r.getKind() == RomKind.LO_ROM) {
+			if (r.getKind() == RomKind.LO_ROM && !isExLoRom) {
 				rank += 1;
+			}
+			// For ambiguous nibble-5 (ExLoROM/ExHiROM), use reset vector heuristic.
+			if (isExLoRom) {
+				int resetVec = h.getResetVector();
+				if (r.getKind() == RomKind.LO_ROM) {
+					long loRomOffset = r.getStartOffset() + resetVec - 0x8000L;
+					try {
+						if (loRomOffset + 1 < provider.length()) {
+							byte b0 = provider.readByte((int) loRomOffset);
+							if (b0 == (byte) 0xFF) {
+								// LO_ROM mapping has no code at reset vector target.
+								rank -= 300;
+							}
+						}
+					} catch (IOException e) {
+						// ignore
+					}
+				} else if (r.getKind() == RomKind.HI_ROM) {
+					long hiRomOffset = r.getStartOffset() + (long) resetVec;
+					try {
+						if (hiRomOffset + 1 < provider.length()) {
+							byte b0 = provider.readByte((int) hiRomOffset);
+							if (b0 == (byte) 0xFF) {
+								// HiROM mapping has no code at reset vector.
+								rank -= 300;
+							} else {
+								// If both reset targets look populated, prefer the historical ExHiROM interpretation.
+								rank += 1;
+							}
+						}
+					} catch (IOException e) {
+						// ignore
+					}
+				}
 			}
 			if (rank > bestRank) {
 				bestRank = rank;

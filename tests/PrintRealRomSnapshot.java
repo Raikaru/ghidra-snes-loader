@@ -62,8 +62,17 @@ public class PrintRealRomSnapshot extends GhidraScript {
      */
     private void printHeaderInfo() {
         String titleStr = "";
+        Address headerAddr = findSnesHeader();
+        if (headerAddr == null) {
+            println("MARK: TITLE (header not found)");
+            println("MARK: MAPMODE = ff");
+            println("MARK: CARTTYPE = ff");
+            println("MARK: ROMKIND (unknown)");
+            println("MARK: COPROC (unknown)");
+            return;
+        }
         try {
-            Address title = toAddr(0x00FFC0L);
+            Address title = headerAddr.add(0x00);
             byte[] tb = new byte[21];
             currentProgram.getMemory().getBytes(title, tb);
             StringBuilder sb = new StringBuilder();
@@ -77,13 +86,41 @@ public class PrintRealRomSnapshot extends GhidraScript {
         catch (Exception e) {
             println("MARK: TITLE (unreadable: " + e.getMessage() + ")");
         }
-
-        int map = readByteOrMinus(0x00FFD5L);
-        int cartType = readByteOrMinus(0x00FFD6L);
+        int map = readByteOrMinus(headerAddr.add(0x15));
+        int cartType = readByteOrMinus(headerAddr.add(0x16));
         println(String.format("MARK: MAPMODE = %02x", map & 0xFF));
         println(String.format("MARK: CARTTYPE = %02x", cartType & 0xFF));
-        println("MARK: ROMKIND " + classifyRomKind(map));
+        println("MARK: ROMKIND " + classifyRomKind(map, headerAddr));
         println("MARK: COPROC " + classifyCoprocessor(map, cartType, titleStr));
+    }
+
+    /**
+     * Find the SNES header in memory by searching for a valid checksum/complement pair.
+     * The header is 64 bytes and the checksum + complement should equal 0xFFFF.
+     */
+    private Address findSnesHeader() {
+        // Try common mapped header locations first. ExLoROM maps the first
+        // 4 MiB at banks $80-$FF and the remaining ROM at banks $00-$7D, so
+        // nibble-5 headers can appear at $80:FFC0 or $01:FFC0 depending on file offset.
+        long[] candidates = { 0x80FFC0L, 0x01FFC0L, 0x40FFC0L, 0x00FFC0L, 0x007FC0L, 0x0001FFFC0L };
+        for (long off : candidates) {
+            try {
+                Address addr = toAddr(off);
+                if (addr == null) continue;
+                // Read checksum and complement
+                byte[] bytes = new byte[4];
+                currentProgram.getMemory().getBytes(addr.add(0x1C), bytes);
+                int complement = (bytes[0] & 0xFF) | ((bytes[1] & 0xFF) << 8);
+                int checksum = (bytes[2] & 0xFF) | ((bytes[3] & 0xFF) << 8);
+                if ((checksum + complement & 0xFFFF) == 0xFFFF) {
+                    return addr;
+                }
+            }
+            catch (Exception e) {
+                // Try next candidate
+            }
+        }
+        return null;
     }
 
     private int readByteOrMinus(long off) {
@@ -95,7 +132,16 @@ public class PrintRealRomSnapshot extends GhidraScript {
         }
     }
 
-    private static String classifyRomKind(int map) {
+    private int readByteOrMinus(Address addr) {
+        try {
+            return currentProgram.getMemory().getByte(addr) & 0xFF;
+        }
+        catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private String classifyRomKind(int map, Address headerAddr) {
         if (map < 0) return "(unreadable)";
         int lo = map & 0x0F;
         switch (lo) {
@@ -103,7 +149,14 @@ public class PrintRealRomSnapshot extends GhidraScript {
             case 0x1:                  return "HiROM";
             case 0x2:                  return "LoROM/SDD-1";
             case 0x3:                  return "LoROM/SA-1";
-            case 0x5:                  return "ExHiROM";
+            case 0x5:
+                // Map mode nibble 5 is ambiguous. Use the block selected by the loader,
+                // not just the address: HiROM creates mirrors at $80:8000-$80:FFFF too.
+                if (headerAddr != null) {
+                    MemoryBlock block = currentProgram.getMemory().getBlock(headerAddr);
+                    if (block != null && block.getName().contains("ExLoROM")) return "ExLoROM";
+                }
+                return "ExHiROM";
             case 0xA:                  return "HiROM/SPC7110";
             default: return String.format("(unknown map=%02x)", map);
         }
