@@ -54,16 +54,22 @@ public class RomInfo {
 			if (romLen < kind.getChunkSize()) {
 				return false;
 			}
-			// Tolerate non-aligned dumps (e.g. dumps with trailing garbage); only
-			// reject if much bigger than the LoROM/HiROM 4 MB ceiling allows for.
 			if (romLen > kind.getMaxRomSize() * 2) {
 				return false;
 			}
-			SnesHeader h = SnesHeader.fromProviderAtOffset(provider, getSnesHeaderOffset());
-			if (!h.looksValid()) {
-				return false;
+			// Try the standard header offset first.
+			SnesHeader h = tryHeaderAt(provider, getSnesHeaderOffset());
+			// For HiROM, also try the ExHiROM upper-ROM header location
+			// ($40:FFC0, ROM offset 0x40FFC0) when the standard offset fails.
+			// Some ExHiROM cartridges (>4 MiB) place their header in the upper
+			// ROM banks rather than at the standard $C0:FFC0.
+			if (h == null && kind == RomKind.HI_ROM && romLen > kind.getMaxRomSize()) {
+				long exHiromOffset = kind.getMaxRomSize() + 0xFFC0L;
+				if (exHiromOffset + 48 <= provider.length()) {
+					h = tryHeaderAt(provider, exHiromOffset);
+				}
 			}
-			// Disambiguate LoROM vs HiROM via the map-mode low nibble.
+			if (h == null) return false;
 			if (kind == RomKind.LO_ROM && !h.isLoRomMode()) {
 				return false;
 			}
@@ -75,6 +81,17 @@ public class RomInfo {
 		}
 		catch (IOException e) {
 			return false;
+		}
+	}
+
+	private SnesHeader tryHeaderAt(ByteProvider provider, long offset) {
+		try {
+			SnesHeader h = SnesHeader.fromProviderAtOffset(provider, offset);
+			if (h.looksValid()) return h;
+			return null;
+		}
+		catch (IOException e) {
+			return null;
 		}
 	}
 
@@ -107,19 +124,18 @@ public class RomInfo {
 	}
 
 	public String getDescription() {
-		return kind.toString() + (hasSmcHeader ? " (with SMC copier header)" : "");
+		return kind.toString() + (hasSmcHeader ? " (SMC)" : "");
 	}
 
 	@Override
 	public int hashCode() {
-		return kind.hashCode() * 31 + (hasSmcHeader ? 1 : 0);
+		return (kind.ordinal() << 1) | (hasSmcHeader ? 1 : 0);
 	}
 
 	@Override
 	public boolean equals(Object obj) {
-		if (!(obj instanceof RomInfo)) {
-			return false;
-		}
+		if (this == obj) return true;
+		if (!(obj instanceof RomInfo)) return false;
 		RomInfo other = (RomInfo) obj;
 		return kind == other.kind && hasSmcHeader == other.hasSmcHeader;
 	}

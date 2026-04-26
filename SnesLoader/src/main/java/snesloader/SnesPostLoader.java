@@ -357,6 +357,7 @@ public final class SnesPostLoader {
 		}
 	}
 
+
 	/**
 	 * Label SA-1 BW-RAM vector table at $00:6000-$7FFF.
 	 */
