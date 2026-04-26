@@ -5,6 +5,26 @@ versioning follows [SemVer](https://semver.org/) for the extension's
 `extension.properties`.
 
 
+## [1.3.0] — 2026-04-26
+
+Adds ExLoROM support for map modes `$25` / `$35` while preserving ExHiROM
+selection for ambiguous nibble-5 cartridges.
+
+### Added
+- **ExLoROM mapping.** Banks `$80-$FF:$8000-$FFFF` expose the first 4 MiB
+  as LoROM-style 32 KiB chunks; banks `$00-$7D:$8000-$FFFF` expose the
+  remaining upper ROM. Verified on Daikaijuu Monogatari II.
+
+### Changed
+- Nibble-5 ROM selection now uses reset-vector target bytes to choose between
+  ExLoROM and ExHiROM candidates. Daikaijuu Monogatari II selects ExLoROM;
+  Tales of Phantasia remains ExHiROM.
+- Real-ROM smoke snapshots now detect headers at mapped ExLoROM locations and
+  classify nibble-5 imports from the loaded memory block, not only the map byte.
+
+[1.3.0]: https://github.com/Raikaru/ghidra-snes-loader/releases/tag/v1.3.0
+
+
 ## [1.2.2] — 2026-04-25
 
 Expanded coprocessor coverage: GSU (SuperFX) RAM mapping, SA-1
