@@ -64,7 +64,7 @@ public class RomInfo {
 			// Some ExHiROM cartridges (>4 MiB) place their header in the upper
 			// ROM banks rather than at the standard $C0:FFC0.
 			if (h == null && kind == RomKind.HI_ROM && romLen > kind.getMaxRomSize()) {
-				long exHiromOffset = kind.getMaxRomSize() + 0xFFC0L;
+				long exHiromOffset = getStartOffset() + kind.getMaxRomSize() + 0xFFC0L;
 				if (exHiromOffset + 48 <= provider.length()) {
 					h = tryHeaderAt(provider, exHiromOffset);
 				}
