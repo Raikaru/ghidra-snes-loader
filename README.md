@@ -156,6 +156,25 @@ This gives a regression test for the loader, the DBR/DP analyser, the
 HiROM mapper, the mirror-block construction, and the per-vector
 context overrides — without shipping any binary ROM in the repo.
 
+## Local validation workflows
+
+- `docs/GHIDRA-STACK-WORKFLOW.md` describes how to use this loader with
+  `ghidra-65816` and `ghidra-spc700`.
+- `tests/ghidra-stack-smoke.ps1` compiles the local 65816 and SPC700 modules
+  inside the `ghidra-mcp` container, builds/installs the local SNES loader,
+  and imports a synthetic LoROM through that loader.
+- `tests/real-rom-smoke.ps1` can sweep a local private ROM directory and write
+  local-only marker summaries under `.local-test/`; these may include short
+  instruction text markers and must not be committed.
+- `tests/export-structure.ps1` runs a local import and writes a payload-free
+  structural JSON summary for downstream validation notes.
+- `docs/SMT1-VALIDATION-SEEDS.md` lists high-value real-ROM validation
+  questions without making SMT1 a committed fixture.
+
+Real games such as SMT1 are validation targets only. Do not commit ROMs,
+decoded text, copied disassembly, screenshots, graphics, audio samples, maps,
+scripts, save payloads, or raw byte ranges.
+
 ## Provenance
 
 Originally based on
