@@ -168,10 +168,12 @@ context overrides — without shipping any binary ROM in the repo.
   instruction text markers and must not be committed.
 - `tests/export-structure.ps1` runs a local import and writes a payload-free
   structural JSON summary for downstream validation notes.
+- `tests/export-structure-batch.ps1` sweeps a private ROM set and writes a
+  count-only local batch summary for comparison.
 - `docs/SMT1-VALIDATION-SEEDS.md` lists high-value real-ROM validation
-  questions without making SMT1 a committed fixture.
+  questions without making SMT-family games committed fixtures.
 
-Real games such as SMT1 are validation targets only. Do not commit ROMs,
+Real games such as SMT1, SMT2, and SMT if... are validation targets only. Do not commit ROMs,
 decoded text, copied disassembly, screenshots, graphics, audio samples, maps,
 scripts, save payloads, or raw byte ranges.
 

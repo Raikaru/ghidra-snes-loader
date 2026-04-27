@@ -42,25 +42,34 @@ public class ExportSnesStructureJson extends GhidraScript {
     private StringBuilder appendVectors(StringBuilder out) {
         out.append("\"vectors\":[");
         SymbolTable st = currentProgram.getSymbolTable();
-        String[] names = {
-            "vector_RESET",
-            "vector_NMI_native",
-            "vector_NMI_emu",
-            "vector_IRQ_native",
-            "vector_IRQ_BRK_emu",
-            "vector_COP_native",
-            "vector_COP_emu",
-            "vector_BRK_native",
-            "vector_ABORT_native",
-            "vector_ABORT_emu",
+        String[][] vectors = {
+            { "vector_RESET", "Reset" },
+            { "vector_NMI_native", "isr_nmi_native" },
+            { "vector_NMI_emu", "isr_nmi_emu" },
+            { "vector_IRQ_native", "isr_irq_native" },
+            { "vector_IRQ_BRK_emu", "isr_irq_brk_emu" },
+            { "vector_COP_native", "isr_cop_native" },
+            { "vector_COP_emu", "isr_cop_emu" },
+            { "vector_BRK_native", "isr_brk_native" },
+            { "vector_ABORT_native", "isr_abort_native" },
+            { "vector_ABORT_emu", "isr_abort_emu" },
         };
         boolean first = true;
-        for (String name : names) {
+        for (String[] vector : vectors) {
+            String name = vector[0];
+            String functionName = vector[1];
             for (Symbol s : st.getSymbols(name)) {
                 if (!first) out.append(",");
+                Address target = readVectorTarget(s.getAddress());
+                Function function = target == null
+                    ? null
+                    : currentProgram.getFunctionManager().getFunctionAt(target);
                 out.append("{");
                 field(out, "name", name).append(",");
-                field(out, "address", hex(s.getAddress()));
+                field(out, "address", hex(s.getAddress())).append(",");
+                field(out, "target", hex(target)).append(",");
+                field(out, "expected_function", functionName).append(",");
+                field(out, "function", function == null ? "" : function.getName());
                 out.append("}");
                 first = false;
             }
@@ -169,6 +178,21 @@ public class ExportSnesStructureJson extends GhidraScript {
         }
         catch (Exception e) {
             return "";
+        }
+    }
+
+    private Address readVectorTarget(Address vectorAddress) {
+        try {
+            int lo = currentProgram.getMemory().getByte(vectorAddress) & 0xff;
+            int hi = currentProgram.getMemory().getByte(vectorAddress.add(1)) & 0xff;
+            int target = (hi << 8) | lo;
+            if (target == 0x0000 || target == 0xffff) {
+                return null;
+            }
+            return toAddr(target & 0xffffL);
+        }
+        catch (Exception e) {
+            return null;
         }
     }
 

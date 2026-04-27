@@ -6,9 +6,10 @@ This repo is the SNES loader half of the local Ghidra stack. Use it with:
 - `ghidra-snes-loader` for ROM import, memory maps, vectors, hardware labels, and DBR/DP analysis.
 - `ghidra-spc700` for SPC700/APU blobs extracted or observed locally.
 
-## SMT1 As A Validation Target
+## SMT-Family ROMs As Validation Targets
 
-SMT1 can be used as a local real-ROM regression case, but it is not a committed test fixture.
+SMT1, SMT2, and SMT if... can be used as local real-ROM regression cases, but
+they are not committed test fixtures.
 
 Allowed in this repo:
 
@@ -54,9 +55,15 @@ Not allowed:
    .\tests\export-structure.ps1 -RomPath "C:\path\to\local\rom.sfc"
    ```
 
-8. Record findings with `docs/NOTES-TEMPLATE.md`.
+8. Batch-export a private validation set when comparing related games:
 
-## What To Check On SMT1
+   ```powershell
+   .\tests\export-structure-batch.ps1 -RomDir "C:\path\to\local\roms" -NamePattern "*Shin Megami Tensei*.sfc"
+   ```
+
+9. Record findings with `docs/NOTES-TEMPLATE.md`.
+
+## What To Check On SMT-Family ROMs
 
 For loader/processor validation, high-value observations are:
 
@@ -76,6 +83,7 @@ For loader/processor validation, high-value observations are:
 - program/language/compiler identifiers;
 - map mode;
 - vector symbol addresses;
+- vector targets and whether Ghidra has a function at each target;
 - memory block names/ranges/types/sizes;
 - counts for functions, blocks, symbols, hardware symbols, and DBR/DP analyzer coverage.
 
@@ -83,6 +91,9 @@ It does not emit ROM bytes, decoded text, disassembly bodies, graphics,
 screenshots, audio, maps, scripts, or saves. Output belongs under `.local-test/`
 or another ignored/local path.
 
-The wrapper removes the copied ROM from `/tmp/snes-structure` when it exits.
+The wrapper removes the copied ROM from its temporary `/tmp/snes-structure-*`
+workspace when it exits. The batch wrapper writes a compact
+`batch-summary.json` with counts only, suitable for local comparison across
+private ROMs.
 
 If an observation points to APU code, analyze the SPC700 blob separately with `ghidra-spc700`; do not turn this repo into an SMT1 decomp notes store.

@@ -1,8 +1,8 @@
-# SMT1 Validation Seeds
+# SMT-Family Validation Seeds
 
-Use this as a local checklist when SMT1 is used as a real-ROM validation target
-for the Ghidra stack. These are questions to answer with payload-free notes,
-not decomp artifacts to commit.
+Use this as a local checklist when SMT1, SMT2, or SMT if... are used as
+real-ROM validation targets for the Ghidra stack. These are questions to answer
+with payload-free notes, not decomp artifacts to commit.
 
 ## Loader Basics
 
@@ -46,3 +46,15 @@ Record:
 
 Do not record copied code, decoded text, graphics, screenshots, audio, maps,
 scripts, samples, saves, or raw bytes.
+
+## Current Private-ROM Baseline
+
+When run locally with the private SMT2 and SMT if... ROMs, the stack should at
+minimum:
+
+- import with `65816:LE:16:default`;
+- report map mode `20` for LoROM;
+- create vector symbols;
+- create hardware-register symbols;
+- produce non-zero DBR/DP analyzer coverage;
+- write only ignored `.local-test/structure-export/*.json` summaries.
