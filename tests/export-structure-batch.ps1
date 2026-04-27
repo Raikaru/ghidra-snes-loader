@@ -67,7 +67,26 @@ function ConvertTo-SafeStem([string] $path) {
     return "$base.$hashText"
 }
 
+function Get-HeadlessLogPath([string] $jsonPath) {
+    $dir = [IO.Path]::GetDirectoryName($jsonPath)
+    $safeStem = [IO.Path]::GetFileNameWithoutExtension($jsonPath) -replace '[^A-Za-z0-9_.-]', '_'
+    return Join-Path $dir "$safeStem.headless.log"
+}
+
+function Read-AnalyzerErrors([string] $jsonPath) {
+    $logPath = Get-HeadlessLogPath $jsonPath
+    if (-not (Test-Path -LiteralPath $logPath)) {
+        return [pscustomobject]@{ count = 0; kinds = @() }
+    }
+    $errorMatches = @(Get-Content -LiteralPath $logPath | Select-String -Pattern 'ERROR\s+caught exception\s+\(([^)]+)\)')
+    $kinds = @($errorMatches | ForEach-Object {
+        if ($_.Line -match 'ERROR\s+caught exception\s+\(([^)]+)\)') { $Matches[1] }
+    } | Sort-Object -Unique)
+    return [pscustomobject]@{ count = $errorMatches.Count; kinds = $kinds }
+}
+
 function Read-ExportSummary([string] $rom, [string] $inputId, [string] $jsonPath, [string] $status, [string] $errorText) {
+    $analyzerErrors = Read-AnalyzerErrors $jsonPath
     if ($status -ne "ok") {
         return [pscustomobject]@{
             rom = [IO.Path]::GetFileName($rom)
@@ -75,6 +94,8 @@ function Read-ExportSummary([string] $rom, [string] $inputId, [string] $jsonPath
             structure_json = [IO.Path]::GetFileName($jsonPath)
             status = $status
             error = $errorText
+            analyzer_error_count = $analyzerErrors.count
+            analyzer_error_kinds = $analyzerErrors.kinds
         }
     }
     if (-not (Test-Path -LiteralPath $jsonPath)) {
@@ -84,6 +105,8 @@ function Read-ExportSummary([string] $rom, [string] $inputId, [string] $jsonPath
             structure_json = [IO.Path]::GetFileName($jsonPath)
             status = "failed"
             error = "Export JSON not found: $jsonPath"
+            analyzer_error_count = $analyzerErrors.count
+            analyzer_error_kinds = $analyzerErrors.kinds
         }
     }
 
@@ -103,6 +126,8 @@ function Read-ExportSummary([string] $rom, [string] $inputId, [string] $jsonPath
         input_id = $inputId
         structure_json = [IO.Path]::GetFileName($jsonPath)
         status = "ok"
+        analyzer_error_count = $analyzerErrors.count
+        analyzer_error_kinds = $analyzerErrors.kinds
         language = $json.language
         compiler = $json.compiler
         map_mode = $json.map_mode
@@ -135,11 +160,11 @@ foreach ($rom in $roms) {
 
     $stem = ConvertTo-SafeStem $rom
     $jsonPath = Join-Path $OutDir "$stem.structure.json"
-    $jobs.Add((Start-Job -ArgumentList $exportScript,$rom,$jsonPath,$Container -ScriptBlock {
-        param($scriptPath, $romPath, $outPath, $containerName)
+    $jobs.Add((Start-Job -ArgumentList $exportScript,$rom,$jsonPath,$Container,$OutDir -ScriptBlock {
+        param($scriptPath, $romPath, $outPath, $containerName, $batchOutDir)
         try {
             Remove-Item -LiteralPath $outPath -Force -ErrorAction SilentlyContinue
-            $childOutput = & pwsh -NoProfile -File $scriptPath -RomPath $romPath -OutPath $outPath -Container $containerName 2>&1
+            $childOutput = & pwsh -NoProfile -File $scriptPath -RomPath $romPath -OutPath $outPath -Container $containerName -OutDir $batchOutDir 2>&1
             if ($LASTEXITCODE -ne 0) {
                 $tail = @($childOutput | Select-Object -Last 8) -join " "
                 throw "export-structure.ps1 exited with code $LASTEXITCODE. $tail"

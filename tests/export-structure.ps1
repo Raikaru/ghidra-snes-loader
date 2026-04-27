@@ -16,7 +16,10 @@ param(
     [string] $OutPath = "",
 
     [Parameter(Mandatory=$false)]
-    [string] $Container = "ghidra-mcp"
+    [string] $Container = "ghidra-mcp",
+
+    [Parameter(Mandatory=$false)]
+    [string] $OutDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +30,9 @@ if (-not (Test-Path $RomPath)) {
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$OutDir = Join-Path $RepoRoot ".local-test\structure-export"
+if ([string]::IsNullOrWhiteSpace($OutDir)) {
+    $OutDir = Join-Path $RepoRoot ".local-test\structure-export"
+}
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 if ([string]::IsNullOrWhiteSpace($OutPath)) {

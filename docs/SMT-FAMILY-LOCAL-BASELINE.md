@@ -7,10 +7,10 @@ screenshots, audio, maps, scripts, samples, saves, or raw byte ranges.
 
 Current expected local signals:
 
-| ROM | Functions | Direct-call targets with functions | Indirect candidates | Hardware refs | APU refs | DBR refs | DP refs |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| SMT2 | 76 | 69 | 0 | 20 | 0 | 1154 | 140 |
-| SMT if... | 43 | 37 | 0 | 32 | 0 | 688 | 140 |
+| ROM | Functions | Direct-call targets with functions | Indirect candidates | Hardware refs | APU refs | APU scalar candidates | DBR refs | DP refs | Analyzer errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| SMT2 | 76 | 69 | 0 | 34 | 0 | 37 | 1154 | 140 | 2 |
+| SMT if... | 43 | 37 | 0 | 30 | 0 | 40 | 688 | 140 | 2 |
 
 Interpretation:
 
@@ -20,5 +20,12 @@ Interpretation:
   computed-flow sites to label from the current decoded set; dispatchers may
   still need manual navigation or a later game-informed script.
 - Zero APU-port references means `$2140-$2143` handoff code is not surfaced by
-  the initial decoded function set yet. Use emulator traces, manual labels, or
-  future data-flow work to seed those paths before SPC700 extraction.
+  resolved references in the initial decoded function set yet. Scalar
+  candidates are broader and may include setup code, address operands, or other
+  values that have not resolved to hardware labels.
+- Analyzer errors are local headless-log diagnostics. They are not payload and
+  should be reduced with synthetic tests before changing shared processor or
+  loader behavior.
+- Pointer-table candidate exports are intentionally tied to nearby indirect
+  flow. If no indirect-flow sites are decoded yet, zero table candidates is a
+  useful signal that more function/data discovery is needed first.

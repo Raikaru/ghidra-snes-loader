@@ -67,7 +67,14 @@ Not allowed:
    .\tests\export-apu-candidates.ps1 -RomPath "C:\path\to\local\rom.sfc"
    ```
 
-10. Record findings with `docs/NOTES-TEMPLATE.md`.
+10. Export indirect-flow and pointer-table candidates when dispatcher work is
+    involved:
+
+   ```powershell
+   .\tests\export-flow-candidates.ps1 -RomPath "C:\path\to\local\rom.sfc"
+   ```
+
+11. Record findings with `docs/NOTES-TEMPLATE.md`.
 
 ## What To Check On SMT-Family ROMs
 
@@ -121,3 +128,6 @@ Use the batch summary as a trend report, not as proof of a complete decomp:
 - `unresolved_call_instructions` should trend down as reference quality improves.
 - `apu_port_reference_instructions` gives the first 65816-side leads for SPC700
   upload or sound-command routines.
+- `analyzer_error_count` and `analyzer_error_kinds` expose generic Ghidra
+  analyzer exceptions from the local headless log; import can still succeed
+  while these point at p-code/addressing polish work.

@@ -180,7 +180,10 @@ context overrides — without shipping any binary ROM in the repo.
 - `tests/export-structure-batch.ps1` sweeps a private ROM set and writes a
   count-only local batch summary for comparison.
 - `tests/export-apu-candidates.ps1` writes a local payload-free list of
-  functions/instruction addresses that reference APU ports `$2140-$2143`.
+  functions/instruction addresses that reference or contain scalar candidates
+  for APU ports `$2140-$2143`.
+- `tests/export-flow-candidates.ps1` writes local payload-free indirect-flow
+  and pointer-table candidates for manual dispatcher/table review.
 - `docs/SMT1-VALIDATION-SEEDS.md` lists high-value real-ROM validation
   questions without making SMT-family games committed fixtures.
 
