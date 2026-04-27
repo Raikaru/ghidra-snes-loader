@@ -14,6 +14,7 @@ import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.ProgramContext;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
@@ -117,13 +118,21 @@ public class ExportSnesStructureJson extends GhidraScript {
         }
 
         int hwSymbols = countPrimaryHwSymbols();
+        int directCallTargetFunctions = countDirectCallTargetsWithFunctions();
+        int indirectCandidates = countSymbolsNamed("candidate_indirect_");
+        int[] refQuality = countReferenceQuality();
         int[] contextCoverage = countContextCoverage();
 
         out.append("\"counts\":{");
         out.append("\"functions\":").append(functions).append(",");
+        out.append("\"functions_discovered_direct_calls\":").append(directCallTargetFunctions).append(",");
         out.append("\"memory_blocks\":").append(blocks).append(",");
         out.append("\"symbols_total\":").append(symbols).append(",");
         out.append("\"symbols_hw_primary\":").append(hwSymbols).append(",");
+        out.append("\"indirect_flow_candidates\":").append(indirectCandidates).append(",");
+        out.append("\"apu_port_reference_instructions\":").append(refQuality[0]).append(",");
+        out.append("\"hw_reference_instructions\":").append(refQuality[1]).append(",");
+        out.append("\"unresolved_call_instructions\":").append(refQuality[2]).append(",");
         out.append("\"dbr_override_instructions\":").append(contextCoverage[0]).append(",");
         out.append("\"dp_override_instructions\":").append(contextCoverage[1]);
         out.append("}");
@@ -144,6 +153,64 @@ public class ExportSnesStructureJson extends GhidraScript {
             }
         }
         return count;
+    }
+
+    private int countSymbolsNamed(String prefix) {
+        int count = 0;
+        SymbolIterator allSyms = currentProgram.getSymbolTable().getAllSymbols(true);
+        while (allSyms.hasNext()) {
+            Symbol symbol = allSyms.next();
+            if (symbol.getName().startsWith(prefix)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countDirectCallTargetsWithFunctions() {
+        Set<Address> targets = new HashSet<>();
+        var iter = currentProgram.getListing().getInstructions(true);
+        while (iter.hasNext()) {
+            Instruction instruction = iter.next();
+            if (!instruction.getFlowType().isCall() || instruction.getFlowType().isComputed()) {
+                continue;
+            }
+            for (Address target : instruction.getFlows()) {
+                if (target == null) continue;
+                Function function = currentProgram.getFunctionManager().getFunctionAt(target);
+                if (function != null) {
+                    targets.add(target);
+                }
+            }
+        }
+        return targets.size();
+    }
+
+    private int[] countReferenceQuality() {
+        Set<Address> apuRefs = new HashSet<>();
+        Set<Address> hwRefs = new HashSet<>();
+        Set<Address> unresolvedCalls = new HashSet<>();
+
+        var iter = currentProgram.getListing().getInstructions(true);
+        while (iter.hasNext()) {
+            Instruction instruction = iter.next();
+            if (instruction.getFlowType().isCall() && instruction.getFlows().length == 0) {
+                unresolvedCalls.add(instruction.getAddress());
+            }
+            for (Reference ref : instruction.getReferencesFrom()) {
+                Address to = ref.getToAddress();
+                if (to == null) continue;
+                long off = to.getOffset() & 0xffffffL;
+                int low = (int) (off & 0xffffL);
+                if (low >= 0x2000 && low <= 0x5fff) {
+                    hwRefs.add(instruction.getAddress());
+                }
+                if (low >= 0x2140 && low <= 0x2143) {
+                    apuRefs.add(instruction.getAddress());
+                }
+            }
+        }
+        return new int[] { apuRefs.size(), hwRefs.size(), unresolvedCalls.size() };
     }
 
     private int[] countContextCoverage() throws Exception {

@@ -17,9 +17,10 @@ SnesLoader's LoROM heuristic:
 
 The RESET vector ($00FFFC) points at $8000, where we write a tiny stub:
 
-    SEI; CLC; XCE; SEP #$30; STP
+    SEI; CLC; XCE; SEP #$30; JSR $8010; STP
 
-so the disassembler has something concrete to chew on.
+The subroutine at $8010 is a single RTS. This pins the SNES Function Discovery
+analyser without committing any binary fixture.
 
 Usage:
     python3 synth-min-lorom.py <output_path>
@@ -44,9 +45,11 @@ def build() -> bytes:
     rom = bytearray(b"\xFF" * ROM_SIZE)
 
     # Reset stub at $8000 (== file offset 0).
-    # SEI = 0x78, CLC = 0x18, XCE = 0xFB, SEP #$30 = 0xE2 0x30, STP = 0xDB.
-    stub = bytes([0x78, 0x18, 0xFB, 0xE2, 0x30, 0xDB])
+    # SEI = 0x78, CLC = 0x18, XCE = 0xFB, SEP #$30 = 0xE2 0x30,
+    # JSR $8010 = 0x20 0x10 0x80, STP = 0xDB.
+    stub = bytes([0x78, 0x18, 0xFB, 0xE2, 0x30, 0x20, 0x10, 0x80, 0xDB])
     rom[0:len(stub)] = stub
+    rom[0x10] = 0x60  # RTS at $8010.
 
     title = b"GHIDRA SNES LDR TEST".ljust(21, b" ")
     rom[HEADER_OFF:HEADER_OFF + 21] = title

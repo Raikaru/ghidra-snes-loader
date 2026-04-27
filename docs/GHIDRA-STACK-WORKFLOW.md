@@ -61,7 +61,13 @@ Not allowed:
    .\tests\export-structure-batch.ps1 -RomDir "C:\path\to\local\roms" -NamePattern "*Shin Megami Tensei*.sfc"
    ```
 
-9. Record findings with `docs/NOTES-TEMPLATE.md`.
+9. Export APU/SPC interaction candidates when sound-driver work is involved:
+
+   ```powershell
+   .\tests\export-apu-candidates.ps1 -RomPath "C:\path\to\local\rom.sfc"
+   ```
+
+10. Record findings with `docs/NOTES-TEMPLATE.md`.
 
 ## What To Check On SMT-Family ROMs
 
@@ -71,6 +77,8 @@ For loader/processor validation, high-value observations are:
 - LoROM/HiROM classification matches the header;
 - reset, NMI, IRQ, BRK, COP vectors are labeled;
 - RESET function is created;
+- direct `JSR`/`JSL` targets become functions after analysis;
+- indirect flow sites are labeled as dispatcher/jump-table candidates, not guessed through blindly;
 - hardware register labels appear in primary and mirrored banks;
 - DBR/DP analyzer produces non-default observations in real code;
 - decompiler output uses native memory references rather than synthetic byte churn;
@@ -86,6 +94,8 @@ For loader/processor validation, high-value observations are:
 - vector targets and whether Ghidra has a function at each target;
 - memory block names/ranges/types/sizes;
 - counts for functions, blocks, symbols, hardware symbols, and DBR/DP analyzer coverage.
+- decomp-readiness counts for direct-call-discovered functions, indirect-flow
+  candidates, APU-port references, hardware references, and unresolved calls.
 
 It does not emit ROM bytes, decoded text, disassembly bodies, graphics,
 screenshots, audio, maps, scripts, or saves. Output belongs under `.local-test/`
@@ -97,3 +107,17 @@ workspace when it exits. The batch wrapper writes a compact
 private ROMs.
 
 If an observation points to APU code, analyze the SPC700 blob separately with `ghidra-spc700`; do not turn this repo into an SMT1 decomp notes store.
+
+## Decompiler Readiness Triage
+
+Use the batch summary as a trend report, not as proof of a complete decomp:
+
+- `functions` should climb as direct calls are discovered, but a sudden huge
+  jump needs manual spot-checking for false positives.
+- `functions_discovered_direct_calls` measures direct `JSR`/`JSL` targets that
+  currently have functions, whether Ghidra or the SNES analyzer created them.
+- `indirect_flow_candidates` marks places to inspect for dispatchers, VM loops,
+  or jump tables.
+- `unresolved_call_instructions` should trend down as reference quality improves.
+- `apu_port_reference_instructions` gives the first 65816-side leads for SPC700
+  upload or sound-command routines.

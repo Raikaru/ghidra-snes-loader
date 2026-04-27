@@ -110,8 +110,13 @@ function Read-ExportSummary([string] $rom, [string] $inputId, [string] $jsonPath
         default_rom_blocks = $defaultRomBlocks
         byte_mapped_blocks = $byteMappedBlocks
         functions = $json.counts.functions
+        functions_discovered_direct_calls = $json.counts.functions_discovered_direct_calls
         symbols_total = $json.counts.symbols_total
         symbols_hw_primary = $json.counts.symbols_hw_primary
+        indirect_flow_candidates = $json.counts.indirect_flow_candidates
+        apu_port_reference_instructions = $json.counts.apu_port_reference_instructions
+        hw_reference_instructions = $json.counts.hw_reference_instructions
+        unresolved_call_instructions = $json.counts.unresolved_call_instructions
         dbr_override_instructions = $json.counts.dbr_override_instructions
         dp_override_instructions = $json.counts.dp_override_instructions
         vector_symbols = @($json.vectors).Count

@@ -16,6 +16,8 @@ with payload-free notes, not decomp artifacts to commit.
 ## Decompiler Usefulness
 
 - Do reset/init routines decompile with direct calls instead of opaque indirect flow?
+- Does `SNES Function Discovery` increase direct-call function count without obvious false positives?
+- Are `candidate_indirect_*` labels plausible dispatchers or jump-table sites?
 - Do common `PHK/PLB`, `PHA/PLB`, `PEA/PLB`, `TCD`, and `PLD` idioms improve DBR/DP context?
 - Do absolute/direct-page memory references resolve into the intended banks?
 - Do function boundaries around dispatchers need loader/analyzer improvements?
@@ -56,5 +58,8 @@ minimum:
 - report map mode `20` for LoROM;
 - create vector symbols;
 - create hardware-register symbols;
+- create functions from direct call targets;
+- report indirect-flow candidates for manual dispatcher/jump-table review;
 - produce non-zero DBR/DP analyzer coverage;
+- report APU-port reference candidates when the game touches `$2140-$2143`;
 - write only ignored `.local-test/structure-export/*.json` summaries.

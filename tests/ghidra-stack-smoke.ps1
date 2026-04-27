@@ -110,6 +110,9 @@ if ($summary.map_mode -ne "20") {
 if ($summary.counts.functions -lt 1) {
     throw "Expected at least one exported function"
 }
+if ($summary.counts.functions_discovered_direct_calls -lt 1) {
+    throw "Expected SNES Function Discovery to create at least one direct-call function"
+}
 $summary | ConvertTo-Json -Depth 20 | Out-File -FilePath $ExportJsonPath -Encoding utf8
 
 Write-Host "Stack smoke passed. Logs written to $OutDir" -ForegroundColor Green

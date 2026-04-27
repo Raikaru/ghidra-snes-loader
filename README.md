@@ -75,6 +75,15 @@ until the next conflicting write), so e.g. a `LDA $1234,X` that follows a
 `PHK ; PLB` decompiles as a load from `<currentBank>:1234,X` instead of from
 the loader's tracked default of `$00:1234,X`.
 
+### Function discovery analyser
+
+The bundled `SNES Function Discovery` analyser makes the first decompiler pass
+less sparse by ensuring direct 65816 `JSR`/`JSL` call targets have functions
+when Ghidra has decoded the call flow but not already created one. It
+intentionally does not guess through computed jumps. Instead, indirect
+`JMP`/`JSR`/`JSL` sites are labeled as `candidate_indirect_*` so jump-table and
+dispatcher work can be handled by a human or by a later game-specific script.
+
 ## Build
 
 The extension is built with Gradle and a local Ghidra installation. Set
@@ -170,6 +179,8 @@ context overrides — without shipping any binary ROM in the repo.
   structural JSON summary for downstream validation notes.
 - `tests/export-structure-batch.ps1` sweeps a private ROM set and writes a
   count-only local batch summary for comparison.
+- `tests/export-apu-candidates.ps1` writes a local payload-free list of
+  functions/instruction addresses that reference APU ports `$2140-$2143`.
 - `docs/SMT1-VALIDATION-SEEDS.md` lists high-value real-ROM validation
   questions without making SMT-family games committed fixtures.
 
